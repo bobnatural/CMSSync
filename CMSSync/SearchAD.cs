@@ -77,7 +77,6 @@ namespace AdPoolService
                 // The dsServiceName property of root DSE contains the distinguished
                 // name of this DC service object.
                 dsServiceName = Convert.ToString(response.Entries[0].Attributes["dsServiceName"][0]);
-                //Console.WriteLine(" dsServiceName: " + dsServiceName);                
             }
 
             using (DirectoryEntry rootDSE = new DirectoryEntry(server.path, server.ServerUserName, server.ServerPassword, server.authTypes))
