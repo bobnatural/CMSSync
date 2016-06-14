@@ -90,11 +90,6 @@ namespace AdPoolService
             else
                 cprContent = SettingsConfiguration.CPRFileContent;
 
-            //using (var fs = new System.IO.StreamWriter(Path.Combine(HomeFolder, "cpr.txt"), false))
-            //{
-            //    fs.Write(cprContent);
-            //    fs.Close();
-            //}
 #if DEBUG
             uniTest();
 #endif
@@ -155,6 +150,12 @@ namespace AdPoolService
 
         private static void uniTest()
         {
+            //using (var fs = new System.IO.StreamWriter(Path.Combine(HomeFolder, "cpr.txt"), false))
+            //{
+            //    fs.Write(cprContent);
+            //    fs.Close();
+            //}
+
             var userPropsFrom = new Dictionary<string, string>() { { "L", "Boston" }, { "facsimileTelephoneNumber", "123" }, { "mobile", "7" } };
             var userPropsTo = new Dictionary<string, string>() { { "L", "Boston" }, { "facsimileTelephoneNumber", "000" }, { "mobile", "4" } };
 
