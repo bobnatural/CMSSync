@@ -123,7 +123,7 @@ namespace AdPoolService
 
                             if (ad.ChangedUsersProperties.Count == 0)
                                 success = true; // no changes 
-                            else if (0 != PutToDestinationAD(config.DestADServers, ad.ChangedUsersProperties))
+                            else if (0 != PutToDestinationAD(config.DestADServers, ad.ChangedUsersProperties, false))
                                 success = true; // saved to Dest AD
                             //  if at least 1 user is succeeded then assume that whole iteration is succeeded
                             //  If all users are failed than seems to be CCM or AD is down and iteration should run again.
@@ -250,7 +250,7 @@ namespace AdPoolService
                 else
                 {
                     log.LogInfo("Need to update " + changedUsers.Count + " accounts...");
-                    var updatedCnt = PutToDestinationAD(config.DestADServers, changedUsers);
+                    var updatedCnt = PutToDestinationAD(config.DestADServers, changedUsers, true);
                     log.LogInfo("Initialization complete. Successfully updated " + updatedCnt + " of " + changedUsers.Count + " accounts.");
                 }
             }
@@ -328,7 +328,7 @@ namespace AdPoolService
         /// <param name="servers"></param>
         /// <param name="usersProps"></param>
         /// <returns>count of successed users</returns>
-        private static int PutToDestinationAD(ADServer[] servers, List<IDictionary<string, string>> usersProps)
+        private static int PutToDestinationAD(ADServer[] servers, List<IDictionary<string, string>> usersProps, bool initializeMode)
         {
             ADServer server = servers[0];
             int updatedCnt = 0;
@@ -351,7 +351,11 @@ namespace AdPoolService
 
                 if (adHint == null)
                 {
-                    log.LogWarn("ADHint is not found for user '" + samAccount + "'. Attributes:" + PrintAttributes(props));
+                    var messageHint = "ADHint is not found for user '" + samAccount + "'. Attributes:" + PrintAttributes(props);
+                    //if (initializeMode)
+                        log.LogDebug(messageHint);
+                    //else
+                    //    log.LogWarn(messageHint);
                     continue;
                 }                             
 
