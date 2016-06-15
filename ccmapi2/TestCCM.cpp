@@ -237,7 +237,7 @@ void TestCCM::DisConnect()
 					tcout << _T("CredentialManager Session NOT Closed.") << endl;
 			}
 		}
-		catch (LocalizedException* locEx)
+		catch (LocalizedException*)
 		{
 			tcout << _T("Unexpected Failure:") << endl;
 			//printException(locEx);
@@ -268,7 +268,7 @@ void TestCCM::DisConnect()
 					tcout << _T("SyncManager Session NOT Closed.") << endl;
 			}
 		}
-		catch (LocalizedException* locEx)
+		catch (LocalizedException*)
 		{
 			tcout << _T("Unexpected Failure:") << endl;
 			//printException(locEx);
@@ -299,7 +299,7 @@ void TestCCM::DisConnect()
 					tcout << _T("SecurityModuleManager Session NOT Closed.") << endl;
 			}
 		}
-		catch (LocalizedException* locEx)
+		catch (LocalizedException*)
 		{
 			tcout << _T("Unexpected Failure:") << endl;
 			//printException(locEx);
@@ -330,7 +330,7 @@ void TestCCM::DisConnect()
 					tcout << _T("UserManager Session NOT Closed.") << endl;
 			}
 		}
-		catch (LocalizedException* locEx)
+		catch (LocalizedException*)
 		{
 			tcout << _T("Unexpected Failure:") << endl;
 			//printException(locEx);
@@ -361,7 +361,7 @@ void TestCCM::DisConnect()
 					tcout << _T("WalletManager Session NOT Closed.") << endl;
 			}
 		}
-		catch (LocalizedException* locEx)
+		catch (LocalizedException*)
 		{
 			tcout << _T("Unexpected Failure:") << endl;
 			//printException(locEx);

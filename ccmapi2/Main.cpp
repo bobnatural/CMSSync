@@ -117,7 +117,7 @@ void pause()
 
 	// display pause
 	tcout << endl << _T("Press any key to continue...") << endl;
-	getch();
+	_getch();
 }
 
 int _tmain(int argc, _TCHAR* argv[])

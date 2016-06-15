@@ -219,7 +219,7 @@ namespace AdPoolService
                         {
                             adHint = ADHintsConfigurationSection.GetOUByAttributes(userProps);
                         }
-                        catch (Exception e)
+                        catch (Exception)
                         {
                         }
 
