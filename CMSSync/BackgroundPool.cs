@@ -15,6 +15,9 @@ using System.Runtime.InteropServices;
 using System.DirectoryServices.Protocols;
 using Cmssync;
 
+using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
+using Cmssync.Extensions;
+
 namespace AdPoolService
 {
     class BackgroundPool
@@ -156,8 +159,8 @@ namespace AdPoolService
             //    fs.Close();
             //}
 
-            var userPropsFrom = new Dictionary<string, string>() { { "L", "Boston" }, { "facsimileTelephoneNumber", "123" }, { "mobile", "7" } };
-            var userPropsTo = new Dictionary<string, string>() { { "L", "Boston" }, { "facsimileTelephoneNumber", "000" }, { "mobile", "4" } };
+            UserProperties userPropsFrom = new Dictionary<string, string[]>() { { "L", new string[]{"Boston"} }, { "facsimileTelephoneNumber", new string[]{"123"} }, { "mobile", new string[]{"7"} } };
+            UserProperties userPropsTo = new Dictionary<string, string[]>() { { "L", new string[] { "Boston" } }, { "facsimileTelephoneNumber", new string[] { "000" } }, { "mobile", new string[] { "4" } } };
 
             ADHintElement adHint = ADHintsConfigurationSection.GetOUByAttributes(userPropsFrom);
             var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
@@ -182,19 +185,19 @@ namespace AdPoolService
 
             try
             {
-                IDictionary<string, IDictionary<string, string>> userByObjectSID = new Dictionary<string, IDictionary<string, string>>(adDest.ChangedUsersProperties.Count);
-                IDictionary<string, IDictionary<string, string>> userBySamAccount = new Dictionary<string, IDictionary<string, string>>(adDest.ChangedUsersProperties.Count);
+                IDictionary<string, UserProperties> userByObjectSID = new Dictionary<string, UserProperties>(adDest.ChangedUsersProperties.Count);
+                IDictionary<string, UserProperties> userBySamAccount = new Dictionary<string, UserProperties>(adDest.ChangedUsersProperties.Count);
                 log.LogInfo("Loaded " + adSource.ChangedUsersProperties.Count + " accounts from SourceAD " + adSource.DnsHostName + " and " + adDest.ChangedUsersProperties.Count + " accounts from Destination AD " + adDest.DnsHostName);
                 foreach (var userProps in adDest.ChangedUsersProperties)
                 {
                     userProps.Remove("ObjectSID");
                     if (userProps.ContainsKey("Pager") && userProps["Pager"] != null)
-                        userByObjectSID[userProps["Pager"]] = userProps;
-                    userBySamAccount[userProps["samAccountName"]] = userProps;
+                        userByObjectSID[userProps["Pager"][0]] = userProps;
+                    userBySamAccount[userProps["samAccountName"][0]] = userProps;
                 }
 
                 log.LogDebug("  " + userByObjectSID.Count + " users has initialized ObjectSID in DestAD");
-                var changedUsers = new List<IDictionary<string, string>>();
+                var changedUsers = new List<UserProperties>();
 
                 var cnt = adSource.ChangedUsersProperties.Count;
                 FilterAccounts(adSource.ChangedUsersProperties, config.DestADServers.Select(s => s.ServerUserName), oUsToMonitor, oUsDNToMonitor);
@@ -202,14 +205,14 @@ namespace AdPoolService
                     log.LogInfo("Filtered out " + (cnt - adSource.ChangedUsersProperties.Count) + " accounts");
 
                 foreach (var userProps in adSource.ChangedUsersProperties)
-                {   
-                    IDictionary<string, string> destUser = null;
-                    if (!userByObjectSID.TryGetValue(userProps["ObjectSID"], out destUser) || destUser == null)
-                        userBySamAccount.TryGetValue("samAccountName", out destUser);
+                {
+                    UserProperties destUser = null;
+                    if (!userByObjectSID.TryGetValue(userProps["ObjectSID"][0], out destUser) || destUser == null)
+                        userBySamAccount.TryGetValue(userProps["samAccountName"][0], out destUser);
 
                     if (destUser == null) // not found by SID nor samAccountName
                     {
-                        log.LogDebug("  '" + userProps["samAccountName"] + "' is new user");
+                        log.LogDebug("  '" + userProps["samAccountName"][0] + "' is new user");
                         changedUsers.Add(userProps); // new user
                     }
                     else
@@ -225,19 +228,19 @@ namespace AdPoolService
 
                         // {[distinguishedName, CN=user3. sdfsdf,OU=Office31,OU=Office3,OU=Domain Controllers,DC=kireev,DC=local]}
                         // simple way to determine if OU is changed
-                        if (adHint != null && destUser["distinguishedName"].IndexOf(adHint.DestOU, StringComparison.OrdinalIgnoreCase) < 0)
+                        if (adHint != null && destUser["distinguishedName"][0].IndexOf(adHint.DestOU, StringComparison.OrdinalIgnoreCase) < 0)
                         {
-                            log.LogDebug("  '" + destUser["distinguishedName"] + "' need to move to " + adHint.DestOU);
+                            log.LogDebug("  '" + destUser["distinguishedName"][0] + "' need to move to " + adHint.DestOU);
                             changedUsers.Add(userProps); //  OU is changed
                         }
                         else
                             foreach (var prop in userProps)
                             {
-                                string destPropVal;
-                                if (!PollAD.propIgnoreDest.Contains(prop.Key) 
-                                    && destUser.TryGetValue(prop.Key, out destPropVal) && prop.Value != null && !prop.Value.Equals(destPropVal))
+                                string[] destPropVal;
+                                if (!PollAD.propIgnoreDest.Contains(prop.Key)
+                                    && destUser.TryGetValue(prop.Key, out destPropVal) && prop.Value != null && !Utils.CheckEquals(prop.Value, destPropVal)) // !prop.Value.Equals(destPropVal))
                                 {
-                                    log.LogDebug("  '" + userProps["samAccountName"] + "' changed [" + prop.Key + "]='" + destPropVal + "' -> '" + prop.Value + "'");
+                                    log.LogDebug("  '" + userProps["samAccountName"][0] + "' changed [" + prop.Key + "]='" + Utils.PropVal(destPropVal) + "' -> '" + Utils.PropVal(prop.Value) + "'");
                                     changedUsers.Add(userProps);
                                     break;
                                 }
@@ -261,6 +264,7 @@ namespace AdPoolService
             }
         }
 
+       
         private static PollAD GetFromSourceAD(IDictionary<string, string> successHighUSNs)
         {
             foreach (var server in config.SourceADServers)
@@ -278,14 +282,14 @@ namespace AdPoolService
         }
 
 
-        private static void FilterAccounts(List<IDictionary<string, string>> changedUsersProperties, IEnumerable<string> vipAccounts, ISet<string> oUsToMonitor, ISet<string> OUsDNToMonitor)
+        private static void FilterAccounts(List<UserProperties> changedUsersProperties, IEnumerable<string> vipAccounts, ISet<string> oUsToMonitor, ISet<string> OUsDNToMonitor)
         {
             try
             {
                 int removedCnt = 0;
                 // filter out VIP accounts
                 foreach (var vip in vipAccounts)
-                    removedCnt += changedUsersProperties.RemoveAll(p => vip.Equals(p["samAccountName"], StringComparison.OrdinalIgnoreCase));
+                    removedCnt += changedUsersProperties.RemoveAll(p => vip.Equals(p["samAccountName"][0], StringComparison.OrdinalIgnoreCase));
                 // filter out accounts that not in List:
                 //ISet<string> accountToMonitor, 
                 //if (accountToMonitor.Count > 0)
@@ -303,7 +307,7 @@ namespace AdPoolService
                         }
                         return false;
                     };
-                    removedCnt += changedUsersProperties.RemoveAll(p => !accountInOU(p["distinguishedName"]));
+                    removedCnt += changedUsersProperties.RemoveAll(p => !accountInOU(p["distinguishedName"][0]));
                 }
 
                 // filter by DN of OU
@@ -314,7 +318,7 @@ namespace AdPoolService
                             return true;
                     return false;
                 };
-                removedCnt += changedUsersProperties.RemoveAll(p => !accountInOUDN(p["distinguishedName"]));
+                removedCnt += changedUsersProperties.RemoveAll(p => !accountInOUDN(p["distinguishedName"][0]));
             }
             catch (Exception ex)
             {
@@ -328,14 +332,14 @@ namespace AdPoolService
         /// <param name="servers"></param>
         /// <param name="usersProps"></param>
         /// <returns>count of successed users</returns>
-        private static int PutToDestinationAD(ADServer[] servers, List<IDictionary<string, string>> usersProps, bool initializeMode)
+        private static int PutToDestinationAD(ADServer[] servers, List<UserProperties> usersProps, bool initializeMode)
         {
             ADServer server = servers[0];
             int updatedCnt = 0;
 
             foreach (var props in usersProps)
             {
-                var samAccount = props["samAccountName"];
+                var samAccount = props["samAccountName"][0];
                 bool changedImportantProps;
                 //string cardPolicy, hintOU;
                 ADHintElement adHint = null;
@@ -370,7 +374,7 @@ namespace AdPoolService
                 try
                 {
                     //validation
-                    if ((adHint.RequireEmail ?? true) && string.IsNullOrEmpty(props["mail"]))
+                    if ((adHint.RequireEmail ?? true) && (!props.ContainsKey("mail") || string.IsNullOrEmpty(props["mail"][0])))
                         throw new Exception("Account not processed because email address was required for rule " + adHint.Num + " but account did not have an email address");
                     changedImportantProps = PollAD.AddUser(server, adHint.DestOU, props, adHint.GetTransitionByUserAttributes, adHint.Num);
                 }
@@ -408,11 +412,11 @@ namespace AdPoolService
             return updatedCnt; // == usersProps.Count;
         }
 
-        private static string PrintAttributes(IDictionary<string, string> props)
+        private static string PrintAttributes(UserProperties props)
         {
             string output = string.Empty;
             foreach (var dict in props)
-                output += Environment.NewLine + dict.Key + "=" + (dict.Value ?? "NULL") + ";";
+                output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length==0 ? "NULL" : dict.Value[0]) + ";";
             return output;
         }
 

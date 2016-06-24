@@ -1,9 +1,11 @@
-﻿using System;
+﻿using Cmssync.Extensions;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 
 namespace Cmssync
 {
@@ -57,7 +59,7 @@ namespace Cmssync
             return names.ToArray();
         }
 
-        public static ADHintElement GetOUByAttributes(IDictionary<string, string> attributes)
+        public static ADHintElement GetOUByAttributes(IDictionary<string, string[]> attributes)
         {
             // ConfigurationManager.RefreshSection("ADHints");
             var hitsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
@@ -68,11 +70,11 @@ namespace Cmssync
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                 {
                     bool attrFound = false;
-                    string userAttrValue;
+                    string[] userAttrValue;
                     if (attributes.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
                         foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
                         {
-                            if (userAttrValue != null && hintAttrVal.Value.Trim().Equals(userAttrValue.Trim(), StringComparison.OrdinalIgnoreCase))
+                            if (userAttrValue != null && userAttrValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase)) 
                             {
                                 attrFound = true;
                                 break;
@@ -90,8 +92,7 @@ namespace Cmssync
                 }
             }
             return null;
-        }
-
+        }       
     }
 
     public class ADHintsCollection : ConfigurationElementCollection
@@ -177,7 +178,7 @@ namespace Cmssync
             set { this["TransitionAttributes"] = value; }
         }
 
-        public string GetTransitionByUserAttributes(IDictionary<string, string> userAttrFrom, IDictionary<string, string> userAttrTo)
+        public string GetTransitionByUserAttributes(UserProperties userAttrFrom, UserProperties userAttrTo)
         {
             string matchMessage = "";
             if (this.Type != AdHintType.Terminate_Create)
@@ -186,22 +187,22 @@ namespace Cmssync
             foreach (TransitionAttribute hintAttr in TransitionAttributes)
             {
                 string matchedAttrValueFrom, matchedAttrValueTo;
-                string userValueFrom, userValueTo;
+                string[] userValueFrom, userValueTo;
                 userAttrFrom.TryGetValue(hintAttr.Name.Trim(), out userValueFrom);
                 userAttrTo.TryGetValue(hintAttr.Name.Trim(), out userValueTo);
                 
                 var anyFrom = hintAttr.TransitionAttributeValuesFrom.AnyValue ?? false;
                 var anyTo = hintAttr.TransitionAttributeValuesTo.AnyValue ?? false;
-                
-                if (anyFrom && userValueFrom != null && !userValueFrom.Equals(userValueTo))
-                    matchedAttrValueFrom = userValueFrom + "*"; // if AnyValueAttribute set and value has changed
+
+                if (anyFrom && userValueFrom != null && !Utils.CheckEquals(userValueFrom, userValueTo))
+                    matchedAttrValueFrom = userValueFrom[0] + "*"; // if AnyValueAttribute set and value has changed
                 else
                     matchedAttrValueFrom = TryMatchAttributeValues(userValueFrom, hintAttr.TransitionAttributeValuesFrom);
                 if (string.IsNullOrEmpty(matchedAttrValueFrom))
                     return null; // values not found. No transition
 
                 if (anyTo && userValueTo != null && !userValueTo.Equals(userValueFrom))
-                    matchedAttrValueTo = userValueTo + "*"; // if AnyValueAttribute set and value has changed
+                    matchedAttrValueTo = userValueTo[0] + "*"; // if AnyValueAttribute set and value has changed
                 else
                     matchedAttrValueTo = TryMatchAttributeValues(userValueTo, hintAttr.TransitionAttributeValuesTo);
                 
@@ -213,11 +214,12 @@ namespace Cmssync
 
             return matchMessage;
         }
+             
 
-        private string TryMatchAttributeValues(string userValue, TransitionAttributeValuesCollection transitionAttributeValuesCollection)
+        private string TryMatchAttributeValues(string[] userValue, TransitionAttributeValuesCollection transitionAttributeValuesCollection)
         {
             foreach (TransitionAttributeValue hintAttrVal in transitionAttributeValuesCollection)
-                if (hintAttrVal.Value.Trim().Equals(userValue.Trim(), StringComparison.OrdinalIgnoreCase))
+                if (userValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
                     return hintAttrVal.Value;
             return null;
         }

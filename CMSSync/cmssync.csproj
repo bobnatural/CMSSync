@@ -40,6 +40,7 @@
     <Reference Include="System.Configuration.Install" />
     <Reference Include="System.Core" />
     <Reference Include="System.DirectoryServices" />
+    <Reference Include="System.DirectoryServices.AccountManagement" />
     <Reference Include="System.DirectoryServices.Protocols" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -60,6 +61,7 @@
     <Compile Include="CryptUtil.cs" />
     <Compile Include="Extensions\ByteArrayExtensions.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
+    <Compile Include="Extensions\Utils.cs" />
     <Compile Include="HealthCheck\CheckResult.cs" />
     <Compile Include="HealthCheck\HeartbeatMonitor.cs" />
     <Compile Include="HealthCheck\StartupHealthChecker.cs" />

@@ -3,17 +3,20 @@ using Cmssync;
 using System;
 using System.Collections.Generic;
 using System.DirectoryServices;
+using System.DirectoryServices.AccountManagement;
 using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Security.Principal;
 using System.Text;
 using System.Threading.Tasks;
 
+using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
+
 namespace AdPoolService
 {
     class PollAD
     {
-        private List<IDictionary<string, string>> usersProperties; // changed users
+        private List<UserProperties> usersProperties; // changed users
 
         private string workInvocationID; // database ID that was used in search
         private string currentHighUSN;
@@ -23,9 +26,9 @@ namespace AdPoolService
         private static ILog log = new NullLog();
 
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
-        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager" };
+        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager"};
         // ignore to update Destination:
-        public static readonly ISet<string> propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn" };
+        public static readonly ISet<string> propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
         public static List<string> propNamesAll; // hard + hint + transition props for SourceAD
         public static List<string> propNamesDestination; // hard + transition props for DestAD
 
@@ -56,7 +59,7 @@ namespace AdPoolService
 
         public PollAD(ADServer server, IDictionary<string, string> prevHighUSNs, bool supressLog = false)
         {
-            usersProperties = new List<IDictionary<string, string>>();
+            usersProperties = new List<UserProperties>();
             currentHighUSN = null;
             string prevHighUSN;
 
@@ -130,6 +133,8 @@ namespace AdPoolService
                         foreach (var p in propNamesDestination)
                             ds.PropertiesToLoad.Add(p);
 
+                    PrincipalContext domainCtx = new PrincipalContext(ContextType.Domain, server.Name, dsServiceName);
+                    
                     using (SearchResultCollection results = ds.FindAll())
                     {
                         var cnt = results.Count;
@@ -146,7 +151,7 @@ namespace AdPoolService
                                 // simbols '{}' are special for Format. So replace them in DN.
                                 if (cnt <= 20)
                                     log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
-                                var props = new Dictionary<string, string>(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
+                                UserProperties props = new Dictionary<string, string[]>(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
 
                                 //foreach (var p in user.Properties)
                                 //{
@@ -155,13 +160,18 @@ namespace AdPoolService
                                 //    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
                                 //}
 
+                                //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
+
                                 foreach (var p in propNamesAll)
                                 {
                                     var prop = user.Properties[p];
-                                    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
                                     if ("objectSID".Equals(p, StringComparison.OrdinalIgnoreCase))
-                                        propVal = objectSID;
-                                    props.Add(p, propVal);
+                                        props.Add(p, new string[] {objectSID});
+                                    else if (prop.Count > 0)// multi-value support  ("memberof".Equals(p, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        var stringColl = ConvertToStrings(prop);
+                                        props.Add(p, stringColl);
+                                    }
                                 }
 
                                 usersProperties.Add(props);
@@ -172,6 +182,58 @@ namespace AdPoolService
                 return;
             }
         }
+
+        private static string[] ConvertToStrings(System.Collections.ICollection propCollection)
+        {
+            if (propCollection.Count > 0)// multi-value support 
+            {
+                var propVal = new string[propCollection.Count];
+                int i = 0;
+                foreach (var pV in propCollection)
+                    propVal[i++] = Convert.ToString(pV);
+                return propVal;
+            }
+            return null;
+        }
+
+        private static bool CheckEquals(PropertyValueCollection properties, string[] values)
+        {
+            if(properties.Count != values.Length)
+                return false;
+            foreach (var v in values)
+                if (!properties.Contains(v))
+                    return false;
+            return true;
+        }
+
+        //public List<string> GetGroups(PrincipalContext domainCtx, string userName)
+        //{
+        //    List<string> result = new List<string>();
+
+        //    // establish domain context
+        //    //PrincipalContext yourDomain = new PrincipalContext(ContextType.Domain);
+
+        //    // find your user
+        //    UserPrincipal user = UserPrincipal.FindByIdentity(domainCtx, userName);
+
+        //    // if found - grab its groups
+        //    if (user != null)
+        //    {
+        //        PrincipalSearchResult<Principal> groups = user.GetAuthorizationGroups();
+
+        //        // iterate over all groups
+        //        foreach (Principal p in groups)
+        //        {
+        //            // make sure to add only group principals
+        //            if (p is GroupPrincipal)
+        //            {
+        //                result.Add(p.DistinguishedName);
+        //            }
+        //        }
+        //    }
+
+        //    return result;
+        //}
 
         /// <summary>
         /// function for converting oUser.Properties["USNChanged"].Value
@@ -188,11 +250,11 @@ namespace AdPoolService
         /// <summary>
         /// Add or Update user in Destination AD
         /// </summary>
-        public static bool AddUser(ADServer server, string OU, IDictionary<string, string> newProps, //string samAccountName, string userPrincipalName, string displayName, string givenName, string sn, string email, string initials, string objectSID, 
-            Func<IDictionary<string, string>, IDictionary<string, string>, string> CheckTransition, string hintNum)
+        public static bool AddUser(ADServer server, string OU, UserProperties newProps, //string samAccountName, string userPrincipalName, string displayName, string givenName, string sn, string email, string initials, string objectSID, 
+            Func<UserProperties, UserProperties, string> CheckTransition, string hintNum)
         {
             // props["userPrincipalName"], props["displayName"], props["givenName"], props["sn"], props["mail"], props["initials"], props["objectSID"]
-            string samAccountName = newProps["samAccountName"];
+            string samAccountName = newProps["samAccountName"][0];
                        
             string destPath = server.path + "/" + OU;
             // DestPath =LDAP://myServ.local:636/CN=Users,DC=myServ,DC=local
@@ -246,18 +308,19 @@ namespace AdPoolService
                     string changedImportantProps = "";
                     if (!newUser)
                     {
-                        var OldProps = new Dictionary<string, string>(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
+                        var OldProps = new Dictionary<string, string[]>(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
                         foreach (var p in propNamesDestination)
                         {
                             var prop = user.Properties[p];
-                            var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
-                            OldProps.Add(p, propVal);
+                            var strings = ConvertToStrings(prop);
+                            if (strings != null)
+                                OldProps.Add(p, strings);
                         }
                         changedImportantProps += CheckTransition(OldProps, newProps);
                     }
 
                     string prevSamAccountName = (string)user.Properties["samAccountName"].Value;
-                    changedImportantProps += CheckAndSetProperty(user.Properties, "samAccountName", samAccountName); // AD key
+                    changedImportantProps += CheckAndSetProperty(user.Properties, "samAccountName", new string[]{samAccountName}); // AD key
                     if (!newUser && changedImportantProps.Length > 0)
                     {
                         log.LogInfo("Changed account attributes: " + changedImportantProps + "Terminating '" + prevSamAccountName + "' in CCM ...");
@@ -266,7 +329,7 @@ namespace AdPoolService
 
                     foreach (var prop in propNamesDestination)
                     {
-                        string newValue;
+                        string[] newValue;
                         if (!propIgnoreDest.Contains(prop)
                             && newProps.TryGetValue(prop, out newValue))
                             CheckAndSetProperty(user.Properties, prop, newValue, newUser);
@@ -288,18 +351,20 @@ namespace AdPoolService
             }
         }
 
-        private static string CheckAndSetProperty(PropertyCollection property, string propName, object newValue, bool supressLog = false)
+        private static string CheckAndSetProperty(PropertyCollection property, string propName, string[] newValue, bool supressLog = false)
         {
-            if (newValue == null || (newValue is string && string.IsNullOrEmpty((string)newValue))) // to avoid Constraint Violation for new user. Don't set null to property.
+            if (newValue == null || newValue.Length == 0) // (newValue is string && string.IsNullOrEmpty((string)newValue))) // to avoid Constraint Violation for new user. Don't set null to property.
                 return "";
             try
             {
                 var prop = property[propName];
-                if (newValue is string && !((string)newValue).Equals((string)prop.Value, StringComparison.OrdinalIgnoreCase)
-                    || (!(newValue is string) && !Equals(newValue, prop.Value)))
+                // check if property is equal to newValue. If not then set property = newValue.
+                //if (newValue is string && !((string)newValue).Equals((string)prop.Value, StringComparison.OrdinalIgnoreCase)
+                //    || (!(newValue is string) && !Equals(newValue, prop.Value)))
+                if (!CheckEquals(prop, newValue))
                 {
-                    string res = "[" + propName + "]='" + prop.Value + "' -> '" + newValue + "'; ";
-                    if (!supressLog) log.LogDebug("   " + res); 
+                    string res = "[" + propName + "]='" + prop.Value + "' -> '" + (newValue!=null && newValue.Length>0? newValue[0]: "(null)") + "'; ";
+                    log.LogDebug("   " + res); 
                     prop.Value = newValue;
                     return res;
                 }
@@ -324,7 +389,7 @@ namespace AdPoolService
             get { return dnsHostName; }
         }
 
-        public List<IDictionary<string, string>> ChangedUsersProperties
+        public List<UserProperties> ChangedUsersProperties
         {
             get { return usersProperties; }
         }
