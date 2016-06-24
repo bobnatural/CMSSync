@@ -17,9 +17,23 @@ namespace Cmssync.Extensions
                     return false;
             return true;
         }
+        public static bool CheckEquals(ISet<string> values1, ISet<string> values2)
+        {
+            if (values1.Count != values2.Count)
+                return false;
+            foreach (var v in values2)
+                if (!values1.Contains(v))
+                    return false;
+            return true;
+        }
         public static string PropVal(string[] propValues)
         {
             return propValues != null && propValues.Length > 0 ? propValues[0] : "(null)";
+        }
+
+        public static bool Equals(string s1, string s2)
+        {
+            return s1!=null && s1.Equals(s2, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

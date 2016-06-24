@@ -59,6 +59,31 @@ namespace Cmssync
             return names.ToArray();
         }
 
+        public static ISet<string> GetAllGroups()
+        {
+            var hintsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
+            ISet<string> groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ADHintElement hint in hintsElements.ADHints)
+            {
+                foreach (HintAttribute hintAttr in hint.ADHintAttributes)
+                    if (Utils.Equals(hintAttr.Name, "memberof"))
+                        foreach (HintAttributeValue v in hintAttr.HintAttributeValues)
+                            if (!groups.Contains(v.Value))
+                                groups.Add(v.Value);
+                foreach (TransitionAttribute tranAttr in hint.TransitionAttributes)
+                    if (Utils.Equals(tranAttr.Name, "memberof"))
+                    {
+                        foreach (TransitionAttributeValue v in tranAttr.TransitionAttributeValuesFrom)
+                            if (!groups.Contains(v.Value))
+                                groups.Add(v.Value);
+                        foreach (TransitionAttributeValue v in tranAttr.TransitionAttributeValuesTo)
+                            if (!groups.Contains(v.Value))
+                                groups.Add(v.Value);
+                    }
+            }
+            return groups;
+        }
+
         public static ADHintElement GetOUByAttributes(IDictionary<string, string[]> attributes)
         {
             // ConfigurationManager.RefreshSection("ADHints");

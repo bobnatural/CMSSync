@@ -34,7 +34,7 @@ namespace AdPoolService
                 
         private static ISet<string> oUsToMonitor;
         private static ISet<string> oUsDNToMonitor;
-
+        
         public static void Run(bool console = false)
         {
             BackgroundPool.config = new SettingsConfiguration();
@@ -168,6 +168,8 @@ namespace AdPoolService
 
         private static void InitializeAllAccounts()
         {
+            CacheAllGroups();
+
             log.LogInfo("Initialize accounts ...");
             PollAD adSource = GetFromSourceAD(null);
             if (adSource == null)
@@ -264,6 +266,21 @@ namespace AdPoolService
             }
         }
 
+        private static void CacheAllGroups()
+        {
+            foreach (var server in config.SourceADServers)
+            {
+                try
+                {
+                    PollAD.GetGroupMembers(server, ADHintsConfigurationSection.GetAllGroups());
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    log.LogError(ex, "Failed to connect to Source AD Server " + server.Name + ": " + ex.Message);
+                }
+            }
+        }
        
         private static PollAD GetFromSourceAD(IDictionary<string, string> successHighUSNs)
         {

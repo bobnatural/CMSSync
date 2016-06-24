@@ -1,15 +1,12 @@
 ﻿using AdPoolService.Logging;
 using Cmssync;
+using Cmssync.Extensions;
 using System;
 using System.Collections.Generic;
 using System.DirectoryServices;
-using System.DirectoryServices.AccountManagement;
 using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Security.Principal;
-using System.Text;
-using System.Threading.Tasks;
-
 using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 
 namespace AdPoolService
@@ -36,6 +33,7 @@ namespace AdPoolService
         static readonly int PWD_NOTREQD = 0x20; // password not required
         static readonly int DISABLED = 0x002; //account disabled
 
+        private static IDictionary<string, ISet<string>> groupCache; // cache of groups
 
         static public void AddSourcePropNames(string[] addProps)
         {
@@ -119,67 +117,121 @@ namespace AdPoolService
                 if (prevHighUSN == "0")
                     log.LogWarn("Load all users from " + server.Name + " ...");
 
-                using (DirectorySearcher ds = new DirectorySearcher(rootDSE))
+                LoadUsersByFilter(server, rootDSE, string.Format("(&(objectClass=user)(objectCategory=person)(uSNChanged>={0})(!(uSNChanged={0})))", prevHighUSN));
+
+                if (prevHighUSN != "0") // only for realtime mode
+                    LoadUsersByGroups(server, rootDSE, prevHighUSN);
+
+                return;
+            }
+        }
+
+        private void LoadUsersByGroups(ADServer server, DirectoryEntry rootDSE, string prevHighUSN)
+        {
+            //HashSet<string> usersInGroup = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> usersToUpdate = new List<string>();
+            using (DirectorySearcher ds = new DirectorySearcher(rootDSE))
+            {
+                // if '>=' then we get last update twice
+                // Note that the operators "<" and ">" are not supported. See "LDAP syntax filter clause"
+                ds.Filter = string.Format("(&(objectClass=group)(uSNChanged>={0})(!(uSNChanged={0})))", prevHighUSN);
+                ds.SizeLimit = 0; // unlimited
+                ds.PageSize = 1000;
+                ds.PropertiesToLoad.Add("distinguishedname");
+                ds.PropertiesToLoad.Add("member");
+                // looking for changed membership
+                using (SearchResultCollection results = ds.FindAll())
                 {
-                    // if '>=' then we get last update twice
-                    // Note that the operators "<" and ">" are not supported. See "LDAP syntax filter clause"
-                    ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(uSNChanged>={0})(!(uSNChanged={0})))", prevHighUSN);
-                    ds.SizeLimit = 0; // unlimited
-                    ds.PageSize = 1000;
-                    if (server.SourceDest.StartsWith("source", StringComparison.OrdinalIgnoreCase))
-                        foreach (var p in propNamesAll)
-                            ds.PropertiesToLoad.Add(p);
-                    else
-                        foreach (var p in propNamesDestination)
-                            ds.PropertiesToLoad.Add(p);
-
-                    PrincipalContext domainCtx = new PrincipalContext(ContextType.Domain, server.Name, dsServiceName);
-                    
-                    using (SearchResultCollection results = ds.FindAll())
-                    {
-                        var cnt = results.Count;
-                        if (results != null && cnt > 0)
+                    var cnt = results.Count;
+                    if (results != null && cnt > 0)
+                        foreach (SearchResult gr in results)
                         {
-                            log.LogInfo("Reading " + cnt + " account(s) from " + server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
-                            foreach (SearchResult user in results)
+                            var dn = (string)gr.Properties["distinguishedname"][0];
+                            var membersGr = gr.Properties["member"];
+                            ISet<string> cachedMembers;
+                            if(groupCache.TryGetValue(dn, out cachedMembers))
                             {
-                                //var user = r.GetDirectoryEntry();
-                                var objectSID = (new SecurityIdentifier(((byte[])user.Properties["objectSID"][0]), 0)).ToString();
-                                var dnProp = user.Properties["distinguishedName"];
-                                var dn = (dnProp.Count > 0) ? Convert.ToString(dnProp[0]) : null;
-
-                                // simbols '{}' are special for Format. So replace them in DN.
-                                if (cnt <= 20)
-                                    log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
-                                UserProperties props = new Dictionary<string, string[]>(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
-
-                                //foreach (var p in user.Properties)
-                                //{
-                                //    var prop = (ResultPropertyValueCollection)((System.Collections.DictionaryEntry)p).Value;
-                                //    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
-                                //    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
-                                //}
-
-                                //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
-
-                                foreach (var p in propNamesAll)
+                                var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                foreach (string m in membersGr)
+                                    members.Add(m);
+                                if (!Utils.CheckEquals(cachedMembers, members))
                                 {
-                                    var prop = user.Properties[p];
-                                    if ("objectSID".Equals(p, StringComparison.OrdinalIgnoreCase))
-                                        props.Add(p, new string[] {objectSID});
-                                    else if (prop.Count > 0)// multi-value support  ("memberof".Equals(p, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        var stringColl = ConvertToStrings(prop);
-                                        props.Add(p, stringColl);
-                                    }
+                                    var usersDiff = cachedMembers.Except(members).Union(members.Except(cachedMembers)).ToArray();
+                                    log.LogInfo("Membership changed in Group '" + dn + "' DiffMembers: " + string.Join(";", usersDiff.Take(5)));
+                                    usersToUpdate.AddRange(usersDiff);
                                 }
-
-                                usersProperties.Add(props);
+                                groupCache[dn] = members; // update cache
                             }
+                        }
+                }
+            }
+
+            foreach (var u in usersToUpdate.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                LoadUsersByFilter(server, rootDSE, "(&(objectClass=user)(objectCategory=person)(distinguishedName=" + u + "))");
+            }
+        }
+
+        private void LoadUsersByFilter(ADServer server, DirectoryEntry rootDSE, string filter)
+        {
+            using (DirectorySearcher ds = new DirectorySearcher(rootDSE))
+            {
+                // if '>=' then we get last update twice
+                // Note that the operators "<" and ">" are not supported. See "LDAP syntax filter clause"
+                ds.Filter = filter;
+                ds.SizeLimit = 0; // unlimited
+                ds.PageSize = 1000;
+                if (server.SourceDest.StartsWith("source", StringComparison.OrdinalIgnoreCase))
+                    foreach (var p in propNamesAll)
+                        ds.PropertiesToLoad.Add(p);
+                else
+                    foreach (var p in propNamesDestination)
+                        ds.PropertiesToLoad.Add(p);
+
+                using (SearchResultCollection results = ds.FindAll())
+                {
+                    var cnt = results.Count;
+                    if (results != null && cnt > 0)
+                    {
+                        log.LogInfo("Reading " + cnt + " account(s) from " + server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
+                        foreach (SearchResult user in results)
+                        {
+#if DEBUG
+                            //foreach (var p in user.Properties)
+                            //{
+                            //    var prop = (ResultPropertyValueCollection)((System.Collections.DictionaryEntry)p).Value;
+                            //    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
+                            //    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
+                            //}
+#endif
+                            //var user = r.GetDirectoryEntry();
+                            var objectSID = (new SecurityIdentifier(((byte[])user.Properties["objectSID"][0]), 0)).ToString();
+                            var dnProp = user.Properties["distinguishedName"];
+                            var dn = (dnProp.Count > 0) ? Convert.ToString(dnProp[0]) : null;
+
+                            // simbols '{}' are special for Format. So replace them in DN.
+                            if (cnt <= 20)
+                                log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
+                            UserProperties props = new Dictionary<string, string[]>(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
+
+                            //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
+
+                            foreach (var p in propNamesAll)
+                            {
+                                var prop = user.Properties[p];
+                                if ("objectSID".Equals(p, StringComparison.OrdinalIgnoreCase))
+                                    props.Add(p, new string[] { objectSID });
+                                else if (prop.Count > 0)// multi-value support  ("memberof".Equals(p, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var stringColl = ConvertToStrings(prop);
+                                    props.Add(p, stringColl);
+                                }
+                            }
+
+                            usersProperties.Add(props);
                         }
                     }
                 }
-                return;
             }
         }
 
@@ -198,7 +250,7 @@ namespace AdPoolService
 
         private static bool CheckEquals(PropertyValueCollection properties, string[] values)
         {
-            if(properties.Count != values.Length)
+            if (properties.Count != values.Length)
                 return false;
             foreach (var v in values)
                 if (!properties.Contains(v))
@@ -394,9 +446,51 @@ namespace AdPoolService
             get { return usersProperties; }
         }
 
-        internal void InitializeDestination(ADServer server)
-        {
 
+        internal static IDictionary<string, ISet<string>> GetGroupMembers(ADServer server, ISet<string> groupsFilter)
+        {
+            groupCache = new Dictionary<string, ISet<string>>();
+            using (DirectoryEntry rootDSE = new DirectoryEntry(server.path, server.ServerUserName, server.ServerPassword, server.authTypes))
+            {
+                using (DirectorySearcher ds = new DirectorySearcher(rootDSE))
+                {
+                    ds.Filter = "(&(objectClass=group))";
+                    ds.SizeLimit = 0; // unlimited
+                    ds.PageSize = 1000;
+                    ds.PropertiesToLoad.Add("distinguishedname");
+                    ds.PropertiesToLoad.Add("member");
+
+                    using (SearchResultCollection results = ds.FindAll())
+                    {
+                        var cnt = results.Count;
+                        if (results != null && cnt > 0)
+                        {
+                            //log.LogInfo("Reading " + cnt + " account(s) from " + server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
+                            foreach (SearchResult gr in results)
+                            {
+                                var dn = (string)gr.Properties["distinguishedname"][0];
+                                var membersGr = gr.Properties["member"];
+                                if(groupsFilter.Contains(dn))
+                                {
+                                    var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                    foreach (string m in membersGr)
+                                        members.Add(m);
+                                    groupCache.Add(dn, members);
+                                }
+#if DEBUG
+                                foreach (var p in gr.Properties)
+                                {
+                                    var prop = (ResultPropertyValueCollection)((System.Collections.DictionaryEntry)p).Value;
+                                    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
+                                    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
+                                }
+#endif
+                            }
+                        }
+                    }
+                }
+            }
+            return groupCache;
         }
     }
 }
