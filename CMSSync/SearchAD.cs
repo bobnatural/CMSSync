@@ -235,6 +235,33 @@ namespace AdPoolService
             }
         }
 
+        private static DirectoryEntry LoadUserByObjectSID(DirectoryEntry searchOU, string objectSID, string samAccountName)
+        {
+            DirectoryEntry user = null;
+            using (DirectorySearcher ds = new DirectorySearcher(searchOU))
+            {
+                // objectSID is the key stored in "Pager" attribute.
+                ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(Pager={0}))", objectSID);
+                ds.PageSize = 100;
+                // what properties we need:
+                foreach (var p in propNamesDestination)
+                    ds.PropertiesToLoad.Add(p);
+
+                var res = ds.FindOne();
+                if (res != null)  // if user is exist
+                    user = res.GetDirectoryEntry(); // then update
+                else // case if ObjectSID is not initialized
+                {
+                    ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(sAMAccountName={0}))", samAccountName);
+                    res = ds.FindOne();
+                    if (res != null && (res.Properties["Pager"].Count == 0 || string.IsNullOrEmpty((string)res.Properties["Pager"][0])))  // if user is exist and objectSID is not initialized
+                        user = res.GetDirectoryEntry(); // then update
+                }
+            }
+            return user;
+        }
+
+
         private static string[] ConvertToStrings(System.Collections.ICollection propCollection)
         {
             if (propCollection.Count > 0)// multi-value support 
@@ -301,82 +328,78 @@ namespace AdPoolService
 
         /// <summary>
         /// Add or Update user in Destination AD
+        /// return: 0  - succesfully updated 
+        ///         1  - succesfully updated and changedImportantProps
+        ///         -1 - error
         /// </summary>
-        public static bool AddUser(ADServer server, string OU, UserProperties newProps, //string samAccountName, string userPrincipalName, string displayName, string givenName, string sn, string email, string initials, string objectSID, 
-            Func<UserProperties, UserProperties, string> CheckTransition, string hintNum)
+        public static int AddUser(ADServer server, UserProperties newProps, string cprContent) 
         {
             // props["userPrincipalName"], props["displayName"], props["givenName"], props["sn"], props["mail"], props["initials"], props["objectSID"]
             string samAccountName = newProps["samAccountName"][0];
-                       
-            string destPath = server.path + "/" + OU;
-            // DestPath =LDAP://myServ.local:636/CN=Users,DC=myServ,DC=local
-            // or       =LDAP://myServ.local:636/OU=Office21,OU=Office2,OU=Domain Controllers,DC=myServ,DC=local
+            string oldSamAccountName = null;
+            bool isNewUser = false;
+            //bool isChangedOU = false;
 
             using (DirectoryEntry searchOU = new DirectoryEntry(server.path, server.ServerUserName, server.ServerPassword, server.authTypes))
             {
-                DirectoryEntry user = null;
-                using (DirectorySearcher ds = new DirectorySearcher(searchOU))
-                {
-                    // objectSID is the key stored in "Pager" attribute.
-                    ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(Pager={0}))", newProps["objectSID"]);
-                    ds.PageSize = 100;
-                    // what properties we need:
-                    foreach (var p in propNamesDestination)
-                        ds.PropertiesToLoad.Add(p);
+                DirectoryEntry oldUser = LoadUserByObjectSID(searchOU, newProps["objectSID"][0], samAccountName);
 
-                    var res = ds.FindOne();
-                    if (res != null)  // if user is exist
-                        user = res.GetDirectoryEntry(); // then update
-                    else // case if ObjectSID is not initialized
-                    {
-                        ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(sAMAccountName={0}))", samAccountName);
-                        res = ds.FindOne();
-                        if (res != null && (res.Properties["Pager"].Count == 0 || string.IsNullOrEmpty((string)res.Properties["Pager"][0])))  // if user is exist and objectSID is not initialized
-                            user = res.GetDirectoryEntry(); // then update
-                    }
+                UserProperties oldProps = null;
+                if (oldUser != null)
+                {
+                    oldProps = GetUserProperties(oldUser);
+                    oldSamAccountName = (string)oldUser.Properties["samAccountName"].Value;
                 }
+                isNewUser = oldUser == null;
+
+                string transResult;
+                var adHint = ADHintsConfigurationSection.GetOUByAttributes(newProps, oldProps, out transResult);
+                if (adHint == null)
+                {
+                    var messageHint = "ADHint is not found for user '" + samAccountName + "'. Attributes:" + PrintAttributes(newProps);
+                    if (Settings.Default.DataMismatchLogging)
+                        log.LogWarn(messageHint);
+                    else 
+                        log.LogDebug(messageHint);
+                    return 0;
+                }
+
+                var qualityCheck = adHint.QualityCheck(newProps);
+                if (qualityCheck.Count > 0)
+                    throw new Exception("QualityCheck validation fails with:" + Environment.NewLine + string.Join(Environment.NewLine, qualityCheck.ToArray()));
+
+                // Process ...
+                if (adHint.Type == ADHintElement.AdHintType.Terminate)
+                    return CCMApi.Terminate(oldSamAccountName); // return 0 if success
+                
+                string destPath = server.path + "/" + adHint.DestOU;  // ="LDAP://myServ.local:636/OU=Office21,OU=Office2,OU=Domain Controllers,DC=myServ,DC=local"
 
                 using (var destOU = new DirectoryEntry(destPath, server.ServerUserName, server.ServerPassword, server.authTypes))
                 {
-                    bool newUser = false;
-                    if (user == null) // new user
+                    if (isNewUser) // new user
                     {
-                        newUser = true;
-                        log.LogInfo(" '" + samAccountName + "' add into OU '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + hintNum + " ...");
-                        user = destOU.Children.Add("CN=" + samAccountName, "user");
+                        log.LogInfo(" '" + samAccountName + "' add into OU '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                        oldUser = destOU.Children.Add("CN=" + samAccountName, "user");
                     }
                     else
                     {
                         // check if OU is changed for user 
-                        if (!user.Parent.Path.Equals(destOU.Path, StringComparison.OrdinalIgnoreCase))
+                        if (!oldUser.Parent.Path.Equals(destOU.Path, StringComparison.OrdinalIgnoreCase))
                         {
-                            log.LogInfo(" '" + samAccountName + "' move from '" + user.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + hintNum + " ...");
-                            user.MoveTo(destOU);
+                            log.LogInfo(" '" + samAccountName + "' move from '" + oldUser.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                            oldUser.MoveTo(destOU);
                         }
                         else
-                            log.LogInfo(" '" + samAccountName + "' update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + hintNum + " ...");
+                            log.LogInfo(" '" + samAccountName + "' update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
                     }
 
-                    string changedImportantProps = "";
-                    if (!newUser)
+                    string changedImportantProps = transResult;
+                    
+                    changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[]{samAccountName}); // AD key
+                    if (!isNewUser && changedImportantProps.Length > 0)
                     {
-                        var OldProps = new Dictionary<string, string[]>(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
-                        foreach (var p in propNamesDestination)
-                        {
-                            var prop = user.Properties[p];
-                            var strings = ConvertToStrings(prop);
-                            if (strings != null)
-                                OldProps.Add(p, strings);
-                        }
-                        changedImportantProps += CheckTransition(OldProps, newProps);
-                    }
-
-                    string prevSamAccountName = (string)user.Properties["samAccountName"].Value;
-                    changedImportantProps += CheckAndSetProperty(user.Properties, "samAccountName", new string[]{samAccountName}); // AD key
-                    if (!newUser && changedImportantProps.Length > 0)
-                    {
-                        log.LogInfo("Changed account attributes: " + changedImportantProps + "Terminating '" + prevSamAccountName + "' in CCM ...");
-                        CCMApi.Terminate(prevSamAccountName);
+                        log.LogInfo("Changed account attributes: " + changedImportantProps + "Terminating '" + oldSamAccountName + "' in CCM ...");
+                        CCMApi.Terminate(oldSamAccountName);
                     }
 
                     foreach (var prop in propNamesDestination)
@@ -384,24 +407,62 @@ namespace AdPoolService
                         string[] newValue;
                         if (!propIgnoreDest.Contains(prop)
                             && newProps.TryGetValue(prop, out newValue))
-                            CheckAndSetProperty(user.Properties, prop, newValue, newUser);
+                            CheckAndSetProperty(oldUser.Properties, prop, newValue, isNewUser);
+                    }
+                                        
+                    CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
+                    oldUser.Properties["userAccountControl"].Value = NORMAL_ACCOUNT | DISABLED | PWD_NOTREQD;
+                    //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
+                    oldUser.CommitChanges();
+                    
+                    // Dest AD is commited.
+
+                    bool isChangedImportantProps = changedImportantProps.Length > 0 || isNewUser;
+
+                    if (!isChangedImportantProps)
+                    {
+                        log.LogInfo("Skip updating CCM");
+                        return 0;
+                    }
+                    else if (Settings.Default.CCMHost.Trim().Length == 0)
+                    {
+                        log.LogWarn("CCMHost is not set. Skip CCM processing");
+                        return 0;
                     }
 
-                    //CheckAndSetProperty(user.Properties, "givenName", newProps["givenName"]); // FirstName
-                    //CheckAndSetProperty(user.Properties, "sn", newProps["sn"]); // LastName
-                    //CheckAndSetProperty(user.Properties, "initials", newProps["initials"]); // midname
-                    //CheckAndSetProperty(user.Properties, "mail", newProps["mail"]);
-                    //CheckAndSetProperty(user.Properties, "displayName", newProps["displayName"]);
-                    //CheckAndSetProperty(user.Properties, "userPrincipalName", newProps["userPrincipalName"]);
-                    CheckAndSetProperty(user.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
-                    user.Properties["userAccountControl"].Value = NORMAL_ACCOUNT | DISABLED | PWD_NOTREQD;
-                    //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
-                    user.CommitChanges();
-
-                    return changedImportantProps.Length > 0 || newUser; // signal for notify CMS or skip
+                    try { 
+                        return CCMApi.CreateCPR(samAccountName, cprContent, adHint.CardPolicy); // return 0 if success
+                    }
+                    catch (Exception ex)
+                    {
+                        log.LogError(ex, "update user '" + samAccountName + "' in CCM: " + ex.Message);
+                        return -1;
+                    }                   
                 }
             }
         }
+
+        private static string PrintAttributes(UserProperties props)
+        {
+            string output = string.Empty;
+            foreach (var dict in props)
+                output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length == 0 ? "NULL" : dict.Value[0]) + ";";
+            return output;
+        }
+
+        private static UserProperties GetUserProperties(DirectoryEntry user)
+        {
+            var props = new Dictionary<string, string[]>(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
+            foreach (var p in propNamesDestination)
+            {
+                var prop = user.Properties[p];
+                var strings = ConvertToStrings(prop);
+                if (strings != null)
+                    props.Add(p, strings);
+            }
+            return props;
+        }
+
 
         private static string CheckAndSetProperty(PropertyCollection property, string propName, string[] newValue, bool supressLog = false)
         {

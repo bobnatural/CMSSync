@@ -27,12 +27,17 @@ namespace Cmssync
         public static string[] GetAllAttributeNames()
         {
             var hintsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
+            
             ISet<string> names = new HashSet<string>(GetTransitionAttributeNames());
+
             foreach (ADHintElement hint in hintsElements.ADHints)
             {
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                     if (!names.Contains(hintAttr.Name))
                         names.Add(hintAttr.Name);
+                foreach (CheckAttribute attr in hint.QualityCheckAttributes)
+                    if (!names.Contains(attr.Name))
+                        names.Add(attr.Name);
             }
             return names.ToArray();
         }
@@ -83,11 +88,12 @@ namespace Cmssync
             }
             return groups;
         }
-
-        public static ADHintElement GetOUByAttributes(IDictionary<string, string[]> attributes)
+        
+        public static ADHintElement GetOUByAttributes(IDictionary<string, string[]> userPropsNew, IDictionary<string, string[]> userPropsOld, out string transResult)
         {
             // ConfigurationManager.RefreshSection("ADHints");
             var hitsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
+            transResult = string.Empty;
 
             foreach (ADHintElement hint in hitsElements.ADHints)
             {
@@ -96,10 +102,10 @@ namespace Cmssync
                 {
                     bool attrFound = false;
                     string[] userAttrValue;
-                    if (attributes.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
+                    if (userPropsNew.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
                         foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
                         {
-                            if (userAttrValue != null && userAttrValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase)) 
+                            if (userAttrValue != null && userAttrValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
                             {
                                 attrFound = true;
                                 break;
@@ -113,12 +119,21 @@ namespace Cmssync
                 }
                 if (hintMatched) // all attributes are found and equal
                 {
-                    return hint;
+                    if (hint.Type == ADHintElement.AdHintType.Terminate_Create)
+                    {
+                        transResult = hint.GetTransitionByUserAttributes(userPropsOld, userPropsNew);
+                        if (!string.IsNullOrEmpty(transResult))
+                            return hint;
+                    }
+                    else
+                        return hint;
                 }
-            }
+            } // foreach ADHints
             return null;
-        }       
+        }        
     }
+
+
 
     public class ADHintsCollection : ConfigurationElementCollection
     {
@@ -165,12 +180,13 @@ namespace Cmssync
             set { this["Type"] = value; }
         }
 
-        [ConfigurationProperty("RequireEmail", IsRequired = false)]
-        public bool? RequireEmail
-        {
-            get { return (bool?)this["RequireEmail"]; }
-            set { this["RequireEmail"] = value; }
-        }
+        // depricated by Qualitycheck
+        //[ConfigurationProperty("RequireEmail", IsRequired = false)]
+        //public bool? RequireEmail
+        //{
+        //    get { return (bool?)this["RequireEmail"]; }
+        //    set { this["RequireEmail"] = value; }
+        //}
 
         public enum AdHintType
         {
@@ -203,10 +219,22 @@ namespace Cmssync
             set { this["TransitionAttributes"] = value; }
         }
 
+        [System.Configuration.ConfigurationProperty("QualityCheck")]
+        [ConfigurationCollection(typeof(CheckAttributesCollection), AddItemName = "CheckAttribute")]
+        public CheckAttributesCollection QualityCheckAttributes
+        {
+            get
+            {
+                object o = this["QualityCheck"];
+                return o as CheckAttributesCollection;
+            }
+            set { this["QualityCheck"] = value; }
+        }
+
         public string GetTransitionByUserAttributes(UserProperties userAttrFrom, UserProperties userAttrTo)
         {
             string matchMessage = "";
-            if (this.Type != AdHintType.Terminate_Create)
+            if (this.Type != AdHintType.Terminate_Create || userAttrFrom == null || userAttrTo == null)
                 return ""; // Transition rules defined only for Terminate_Create
             
             foreach (TransitionAttribute hintAttr in TransitionAttributes)
@@ -226,7 +254,7 @@ namespace Cmssync
                 if (string.IsNullOrEmpty(matchedAttrValueFrom))
                     return null; // values not found. No transition
 
-                if (anyTo && userValueTo != null && !userValueTo.Equals(userValueFrom))
+                if (anyTo && userValueTo != null && !Utils.CheckEquals(userValueFrom, userValueTo))
                     matchedAttrValueTo = userValueTo[0] + "*"; // if AnyValueAttribute set and value has changed
                 else
                     matchedAttrValueTo = TryMatchAttributeValues(userValueTo, hintAttr.TransitionAttributeValuesTo);
@@ -248,10 +276,61 @@ namespace Cmssync
                     return hintAttrVal.Value;
             return null;
         }
+
+        public IList<string> QualityCheck(UserProperties userAttr)
+        {
+            IList<string> checkMessage = new List<string>();
+            if (userAttr == null)
+                return checkMessage;
+
+
+            foreach (CheckAttribute checkAttr in QualityCheckAttributes)
+            {
+                bool found = false;
+
+                string[] userValue = null;
+                if (userAttr.TryGetValue(checkAttr.Name, out userValue))
+                    foreach(CheckAttributeValue chkVal in checkAttr.CheckAttributeValues)
+                    {
+                        if (found) break;
+                        if (chkVal.Value.StartsWith("*") && chkVal.Value.EndsWith("*"))
+                        {
+                            if(chkVal.Value.Length == 1) // "*"
+                            {
+                                if (userValue != null && userValue.Any(v => !string.IsNullOrEmpty(v)))
+                                    found = true;
+                            }
+                            else // "*abc*"
+                            {
+                                var actValue = chkVal.Value.Remove(0,1); // remove first *
+                                actValue = actValue.Remove(actValue.Length - 1, 1); // remove last *
+                                found = userValue.Any(v => v.IndexOf(actValue, StringComparison.OrdinalIgnoreCase) > 0);
+                            }
+                        }
+                        else if (chkVal.Value.StartsWith("*")) // "*abc"
+                        {
+                            var actValue = chkVal.Value.Remove(0, 1);
+                            found = userValue.Any(v => v.EndsWith(actValue, StringComparison.OrdinalIgnoreCase));
+                        }
+                        else if (chkVal.Value.EndsWith("*")) // "abc*"
+                        {
+                            var actValue = chkVal.Value.Remove(chkVal.Value.Length - 1, 1);
+                            found = userValue.Any(v => v.StartsWith(actValue, StringComparison.OrdinalIgnoreCase));
+                        }
+                        else // "abc"
+                            found = userValue.Contains(chkVal.Value, StringComparer.OrdinalIgnoreCase);
+                    }
+                if(!found)
+                {
+                    checkMessage.Add("[" + checkAttr.Name + "] = " + (userValue != null ? string.Join(";", userValue) : "null"));
+                }
+            }
+            return checkMessage;
+        }
     }
 
     /// <summary>
-    /// HINT ATTRIBUTE
+    /// HINT ATTRIBUTE Collection
     /// </summary>
     [ConfigurationCollection(typeof(HintAttribute), AddItemName = "HintAttribute")]
     public class HintAttributesCollection : ConfigurationElementCollection
@@ -400,6 +479,80 @@ namespace Cmssync
         {
             get { return this["Allow"] as bool?; }
             set { this["Allow"] = value; }
+        }
+    }
+
+
+    /// <summary>
+    /// CHECK ATTRIBUTE Collection
+    /// </summary>
+    [ConfigurationCollection(typeof(CheckAttribute), AddItemName = "CheckAttribute")]
+    public class CheckAttributesCollection : ConfigurationElementCollection
+    {
+
+        protected override ConfigurationElement CreateNewElement()
+        {
+            return new CheckAttribute();
+        }
+
+        protected override object GetElementKey(ConfigurationElement element)
+        {
+            return ((CheckAttribute)element).Name;
+        }
+    }
+
+    /// <summary>
+    /// CHECK ATTRUBUTE
+    /// </summary>
+    public class CheckAttribute : ConfigurationElement
+    {
+        [ConfigurationProperty("Name", IsRequired = true)]
+        public string Name
+        {
+            get { return this["Name"] as string; }
+            set { this["Name"] = value; }
+        }
+
+
+        [ConfigurationProperty("CheckAttributeValues")]
+        public CheckAttributeValuesCollection CheckAttributeValues
+        {
+            get { return ((CheckAttributeValuesCollection)(base["CheckAttributeValues"])); }
+        }
+    }
+
+    /// <summary>
+    /// CHECK ATTRIBUTE VALUES
+    /// </summary>
+    [ConfigurationCollection(typeof(CheckAttributeValue))]
+    public class CheckAttributeValuesCollection : ConfigurationElementCollection
+    {
+
+        protected override ConfigurationElement CreateNewElement()
+        {
+            return new CheckAttributeValue();
+        }
+
+        protected override object GetElementKey(ConfigurationElement element)
+        {
+            return ((CheckAttributeValue)element).Value;
+        }
+        public CheckAttributeValue this[int idx]
+        {
+            get { return (CheckAttributeValue)BaseGet(idx); }
+        }
+    }
+
+    /// <summary>
+    /// QUALITYCHECK ATTRIBUTEs
+    /// </summary>
+    public class CheckAttributeValue : ConfigurationElement
+    {
+        [ConfigurationProperty("Value", IsRequired = true, IsKey = true)]
+        public string Value
+        {
+            get { return this["Value"] as string; }
+            set { this["Value"] = value; }
         }
     }
 }

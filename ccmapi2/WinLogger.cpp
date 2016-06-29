@@ -58,7 +58,7 @@ void WinLogger::Log(int type, const char* szMsg) throw()
 	//	time.wSecond, time.wMilliseconds);
 
 	HANDLE eventLog = OpenEventLog(NULL, this->sourceName);
-	ReportEvent(eventLog, type, 0, 1, NULL, 1, 0, &szMsg, NULL);
+	ReportEvent(eventLog, (WORD)type, 0, 1, NULL, 1, 0, &szMsg, NULL);
 
 	//::WriteToLog_Handle(hLogFile, szTime);
 	//::WriteToLog_Handle(hLogFile, szMsg);

@@ -17,17 +17,20 @@
     <Setting Name="ServiceHealthCheckInterval" Type="System.Int32" Scope="Application">
       <Value Profile="(Default)">5</Value>
     </Setting>
-    <Setting Name="CCMCertificateSerial" Type="System.String" Scope="Application">
-      <Value Profile="(Default)" />
-    </Setting>
-    <Setting Name="CCMCertificateIssuer" Type="System.String" Scope="Application">
-      <Value Profile="(Default)" />
-    </Setting>
     <Setting Name="LogVerbose" Type="System.Boolean" Scope="Application">
       <Value Profile="(Default)">True</Value>
     </Setting>
     <Setting Name="OUsToMonitor" Type="System.String" Scope="Application">
       <Value Profile="(Default)" />
+    </Setting>
+    <Setting Name="CCMCertificateSerial" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">00A3279B81916EB404</Value>
+    </Setting>
+    <Setting Name="CCMCertificateIssuer" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">CN = ActivIdentity Generated Ca</Value>
+    </Setting>
+    <Setting Name="DataMismatchLogging" Type="System.Boolean" Scope="Application">
+      <Value Profile="(Default)">True</Value>
     </Setting>
   </Settings>
 </SettingsFile>

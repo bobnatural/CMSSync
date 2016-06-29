@@ -63,6 +63,10 @@ namespace AdPoolService
             get { return Settings.Default.LogVerbose; }
         }
 
+        public bool DataMismatchLogging
+        {
+            get { return Settings.Default.DataMismatchLogging; }
+        }
 
         public string CCMCertificateSerial
         {

@@ -10,10 +10,14 @@ namespace Cmssync.Extensions
     {
         public static bool CheckEquals(string[] values1, string[] values2)
         {
-            if (values1.Length != values2.Length)
+            if (values1 == null && values2 == null)
+                return true;
+            if (values1==null && values2!=null
+                || values2==null && values1!=null
+                || values1.Length != values2.Length)
                 return false;
             foreach (var v in values2)
-                if (!values1.Contains(v))
+                if (!values1.Contains(v, StringComparer.OrdinalIgnoreCase))
                     return false;
             return true;
         }
@@ -22,7 +26,7 @@ namespace Cmssync.Extensions
             if (values1.Count != values2.Count)
                 return false;
             foreach (var v in values2)
-                if (!values1.Contains(v))
+                if (!values1.Contains(v, StringComparer.OrdinalIgnoreCase))
                     return false;
             return true;
         }

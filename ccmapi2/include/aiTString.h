@@ -18,6 +18,7 @@
  */
 #pragma once
 #pragma warning(disable:4231)	// disable nonstandard extern warning
+#pragma warning(disable:4275)	//
 #include "aiDllUtil.h"
 #include "aiVector.h"
 #include <tchar.h>

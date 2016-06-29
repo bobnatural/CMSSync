@@ -42,16 +42,17 @@ private:
 	std::stringstream		dbgout;
 	
 	// commands:
-	int createCPR(TString& user, TString& cprFile, TString& policy, TString& reason);
+	int createCPR(const TString& user, const TString& cprFile, const TString& policy, const TString& reason);
 	int TerminateAll(const TString &user, bool onlyActive);
 	void cancelActions(WalletId* pWalletId);
+	int GetLifecycleStatus(const TString &user);
 
 	UserId getUserId(TString user);
 	WalletId getWalletId(UserId* userId);
 
 // Helpers:	
-	static TString WCharT(const wchar_t*);
-	static TString readFile(TString& fileName);
+	//static TString WCharT(const wchar_t*);
+	static TString readFile(const TString& fileName);
 	void printException(LocalizedException* pExc);
 	void logError();
 

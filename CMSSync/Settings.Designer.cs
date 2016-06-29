@@ -70,24 +70,6 @@ namespace Cmssync {
         
         [global::System.Configuration.ApplicationScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string CCMCertificateSerial {
-            get {
-                return ((string)(this["CCMCertificateSerial"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("")]
-        public string CCMCertificateIssuer {
-            get {
-                return ((string)(this["CCMCertificateIssuer"]));
-            }
-        }
-        
-        [global::System.Configuration.ApplicationScopedSettingAttribute()]
-        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("True")]
         public bool LogVerbose {
             get {
@@ -101,6 +83,33 @@ namespace Cmssync {
         public string OUsToMonitor {
             get {
                 return ((string)(this["OUsToMonitor"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("00A3279B81916EB404")]
+        public string CCMCertificateSerial {
+            get {
+                return ((string)(this["CCMCertificateSerial"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("CN = ActivIdentity Generated Ca")]
+        public string CCMCertificateIssuer {
+            get {
+                return ((string)(this["CCMCertificateIssuer"]));
+            }
+        }
+        
+        [global::System.Configuration.ApplicationScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool DataMismatchLogging {
+            get {
+                return ((bool)(this["DataMismatchLogging"]));
             }
         }
     }

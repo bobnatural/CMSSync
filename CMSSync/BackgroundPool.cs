@@ -83,8 +83,11 @@ namespace AdPoolService
             if (oUsDNToMonitor.Count > 0)
                 log.LogDebug("Monitoring only " + oUsDNToMonitor.Count + " OU's DNs: " + string.Join(";", oUsDNToMonitor));
 
-            PollAD.AddSourcePropNames(ADHintsConfigurationSection.GetAllAttributeNames());
-            PollAD.AddDestinationPropNames(ADHintsConfigurationSection.GetAllAttributeNames());
+            // get attributes for replicate:
+            var allAtributes = ADHintsConfigurationSection.GetAllAttributeNames();
+            PollAD.AddSourcePropNames(allAtributes);
+            PollAD.AddDestinationPropNames(allAtributes);
+
             PollAD.Log = log;
             CCMApi.log = log;
 
@@ -159,11 +162,19 @@ namespace AdPoolService
             //    fs.Close();
             //}
 
-            UserProperties userPropsFrom = new Dictionary<string, string[]>() { { "L", new string[]{"Boston"} }, { "facsimileTelephoneNumber", new string[]{"123"} }, { "mobile", new string[]{"7"} } };
-            UserProperties userPropsTo = new Dictionary<string, string[]>() { { "L", new string[] { "Boston" } }, { "facsimileTelephoneNumber", new string[] { "000" } }, { "mobile", new string[] { "4" } } };
+            UserProperties userPropsFrom = new Dictionary<string, string[]>() { 
+            { "L", new string[]{"Boston","Tokio"} }, 
+            { "facsimileTelephoneNumber", new string[]{"123"} }, 
+            { "mobile", new string[]{"7"} }, 
+            { "mail", new string[]{"123DfG123"} }, 
+            { "userPrincipalName", new string[]{"123"} }, };
+            UserProperties userPropsTo = new Dictionary<string, string[]>() { { "L", new string[] { "Boston" } }, { "facsimileTelephoneNumber", new string[] { "123" } }, { "mobile", new string[] { "4" } } };
 
-            ADHintElement adHint = ADHintsConfigurationSection.GetOUByAttributes(userPropsFrom);
-            var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
+            string transResult;
+            ADHintElement adHint = ADHintsConfigurationSection.GetOUByAttributes(userPropsTo, userPropsFrom, out transResult);
+            var qualityCheck = adHint.QualityCheck(userPropsFrom);
+
+            // var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
         }
 
         private static void InitializeAllAccounts()
@@ -174,6 +185,7 @@ namespace AdPoolService
             PollAD adSource = GetFromSourceAD(null);
             if (adSource == null)
                 return;
+
             PollAD adDest = null;
             try
             {
@@ -222,7 +234,8 @@ namespace AdPoolService
                         ADHintElement adHint = null;
                         try
                         {
-                            adHint = ADHintsConfigurationSection.GetOUByAttributes(userProps);
+                            string notUsed;
+                            adHint = ADHintsConfigurationSection.GetOUByAttributes(userProps, destUser, out notUsed);
                         }
                         catch (Exception)
                         {
@@ -240,7 +253,7 @@ namespace AdPoolService
                             {
                                 string[] destPropVal;
                                 if (!PollAD.propIgnoreDest.Contains(prop.Key)
-                                    && destUser.TryGetValue(prop.Key, out destPropVal) && prop.Value != null && !Utils.CheckEquals(prop.Value, destPropVal)) // !prop.Value.Equals(destPropVal))
+                                    && destUser.TryGetValue(prop.Key, out destPropVal) && prop.Value != null && !Utils.CheckEquals(prop.Value, destPropVal))
                                 {
                                     log.LogDebug("  '" + userProps["samAccountName"][0] + "' changed [" + prop.Key + "]='" + Utils.PropVal(destPropVal) + "' -> '" + Utils.PropVal(prop.Value) + "'");
                                     changedUsers.Add(userProps);
@@ -357,70 +370,17 @@ namespace AdPoolService
             foreach (var props in usersProps)
             {
                 var samAccount = props["samAccountName"][0];
-                bool changedImportantProps;
-                //string cardPolicy, hintOU;
-                ADHintElement adHint = null;
+                              
                 try
                 {
-                    adHint = ADHintsConfigurationSection.GetOUByAttributes(props);
-                }
-                catch (Exception e)
-                {
-                    log.LogError(e, "Get HintOU By Attributes for user '" + samAccount + "'. Attributes:" + PrintAttributes(props));
-                    continue;
-                }
-
-                if (adHint == null)
-                {
-                    var messageHint = "ADHint is not found for user '" + samAccount + "'. Attributes:" + PrintAttributes(props);
-                    //if (initializeMode)
-                        log.LogDebug(messageHint);
-                    //else
-                    //    log.LogWarn(messageHint);
-                    continue;
-                }                             
-
-                if (adHint.Type == ADHintElement.AdHintType.Terminate)
-                {
-                    if (CCMApi.Terminate(samAccount) == 0)
+                    if (PollAD.AddUser(server, props, cprContent) == 0)
                         updatedCnt++; // success
-                    continue;
-                }
-
-                //otherwise: if (adHint.Type == ADHintElement.AdHintType.Create)
-                try
-                {
-                    //validation
-                    if ((adHint.RequireEmail ?? true) && (!props.ContainsKey("mail") || string.IsNullOrEmpty(props["mail"][0])))
-                        throw new Exception("Account not processed because email address was required for rule " + adHint.Num + " but account did not have an email address");
-                    changedImportantProps = PollAD.AddUser(server, adHint.DestOU, props, adHint.GetTransitionByUserAttributes, adHint.Num);
                 }
                 catch (Exception ex)
                 {
                     log.LogError(ex, "Save user '" + samAccount + "' to Destination AD Server: " + (server != null ? server.Name : "null" + ": " + ex.Message));
                     continue;
-                }
-
-                try
-                {
-                    if (!changedImportantProps)
-                    {
-                        log.LogInfo("Skip updating CCM");
-                        updatedCnt++;
-                    }
-                    else if (Settings.Default.CCMHost.Trim().Length == 0)
-                    {
-                        log.LogWarn("CCMHost is not set. Skip CCM processing");
-                        updatedCnt++;
-                    }
-                    else
-                        if (CCMApi.CreateCPR(samAccount, cprContent, adHint.CardPolicy) == 0)
-                            updatedCnt++; // success
-                }
-                catch (Exception ex)
-                {
-                    log.LogError(ex, "update user '" + samAccount + "' in CCM: " + ex.Message);
-                }
+                }                
             }
             if (updatedCnt == usersProps.Count)
                 log.LogInfo("Updated " + updatedCnt + " user(s) of " + usersProps.Count);
@@ -429,17 +389,9 @@ namespace AdPoolService
             return updatedCnt; // == usersProps.Count;
         }
 
-        private static string PrintAttributes(UserProperties props)
-        {
-            string output = string.Empty;
-            foreach (var dict in props)
-                output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length==0 ? "NULL" : dict.Value[0]) + ";";
-            return output;
-        }
-
-
         public static void Stop()
         {
+            log.LogDebug("Stopped");
             canWork = false;
             stopEvent.Set();
             if (hb != null)

@@ -412,21 +412,21 @@ void TestCCM::logError()
 
 
 
+//
+//// Convert from .NET unicode to mb ccm
+//TString TestCCM::WCharT(const wchar_t* wstr)
+//{
+//	int result_c = WideCharToMultiByte(CP_ACP, 0, wstr, -1, 0, 0, 0, 0);
+//	if (!result_c)
+//		throw new std::exception("Failed to convert string");
+//
+//	return TString(result_c);
+//}
 
-// Convert from .NET unicode to mb ccm
-TString TestCCM::WCharT(const wchar_t* wstr)
-{
-	int result_c = WideCharToMultiByte(CP_ACP, 0, wstr, -1, 0, 0, 0, 0);
-	if (!result_c)
-		throw new std::exception("Failed to convert string");
-
-	return TString(result_c);
-}
-
-TString TestCCM::readFile(TString& fileName)
+TString TestCCM::readFile(const TString& fileName)
 {
 	TCHAR buffer[MAX_PATH];
-	int bytes = GetModuleFileName(NULL, buffer, MAX_PATH);
+	GetModuleFileName(NULL, buffer, MAX_PATH);
 	string::size_type pos = string(buffer).find_last_of("\\/");
 	std::string filePath = string(buffer).substr(0, pos);
 	filePath.append("\\").append(fileName.c_str());
@@ -459,7 +459,8 @@ UserId TestCCM::getUserId(TString user)
 		TString errorMsg = _T("The user ") + TString(user) + _T(" was not found.");
 		nsue->setMessage(errorMsg);
 		nsue->setErrorCode(_T("AIMS_NO_SUCH_USER"));
-		nsue->setUserId(&UserId(user));
+		UserId userId = UserId(user);
+		nsue->setUserId(&userId);
 		throw nsue;
 	}
 	logger.SuccessFormat("User found: %s", user.c_str());
@@ -470,7 +471,7 @@ UserId TestCCM::getUserId(TString user)
 	return userId;
 }
 
-int TestCCM::createCPR(TString& user, TString& cprData, TString& policy, TString& reason)
+int TestCCM::createCPR(const TString& user, const TString& cprData, const TString& policy, const TString& reason)
 {
 	UserId userId = getUserId(user);
 	//TString cprData = readFile(cprFile);
@@ -592,6 +593,37 @@ int TestCCM::TerminateAll(const TString &user, bool onlyActive)
 			// Unbind/Terminate the card
 			walletMgr->unbindSecurityModule(&walletId, smId);
 			//tcout << _T("Unbound Security Module: ") << smId->getType().c_str() << _T(", ") << smId->getId().c_str() << _T(" from Wallet:") << walletId->getId().c_str() << _T(".") << endl;
+		}
+		catch (SecurityModuleNotBoundException* smnbe)
+		{
+			//tcout << _T("Warning: ") << smnbe->getMessage().c_str() << endl;
+			logger.ErrorFormat("Error unbinding device %s: SecurityModuleNotBoundException. %s ", smId->getId().c_str(), smnbe->getMessage().c_str());
+			delete smnbe;
+		}
+	}
+
+	// cleanup
+	delete smIds;
+	return 0;
+}
+
+int TestCCM::GetLifecycleStatus(const TString &user)
+{
+	UserId userId = getUserId(user);
+	WalletId walletId = getWalletId(&userId);
+
+	// Obtain the security module ids
+	SecurityModuleIdVector* smIds = smoMgr->getBoundSMFromWallet(&walletId);
+
+	// Trigger process for all security modules
+	for (int i = 0; smIds != NULL && i < (int)smIds->size(); i++)
+	{
+		//unbind(&smIds->at(i), walletId);
+		SecurityModuleId* const smId = &(smIds->at(i));
+
+		try
+		{
+			TString status = smoMgr->getLifecycleStatus(smId);
 		}
 		catch (SecurityModuleNotBoundException* smnbe)
 		{

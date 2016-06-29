@@ -270,16 +270,8 @@ namespace AdPoolService.HealthCheck {
             string errors = "";
             success = false;
             foreach (var OU in OUs)
-            {
-                int port = 389;  // 636 for LDAPS. 389 for LDAP.
-                AuthenticationTypes authTypes = AuthenticationTypes.Secure;
-                if (server.SSL)
-                {
-                    port = 636;  //default port: 636 for LDAPS. 389 for LDAP.
-                    authTypes |= AuthenticationTypes.SecureSocketsLayer; // SSL
-                }
-                string searchPath = @"LDAP://" + server.Name + ":" + port;
-                string destPath = searchPath + "/" + OU;
+            {               
+                string destPath = server.path + "/" + OU;
                 for (int trials = 0; trials < 6; trials++)
                 {
                     if (DateTime.Now.Subtract(starTime).TotalSeconds > 60)
@@ -289,7 +281,7 @@ namespace AdPoolService.HealthCheck {
                     }
                     try
                     {
-                        using (var destOU = new DirectoryEntry(destPath, server.ServerUserName, server.ServerPassword, authTypes))
+                        using (var destOU = new DirectoryEntry(destPath, server.ServerUserName, server.ServerPassword, server.authTypes))
                         {
                             var n = destOU.Name.ToString();
                             success = true;
