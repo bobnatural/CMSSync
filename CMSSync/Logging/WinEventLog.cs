@@ -28,6 +28,9 @@ namespace AdPoolService.Logging
                 case Severity.Warn:
                     EventLog.WriteEntry(sourceName, message, EventLogEntryType.Warning, 150);
                     break;
+                case Severity.Warn2:
+                    EventLog.WriteEntry(sourceName, message, EventLogEntryType.Warning, 151);
+                    break;
                 case Severity.Info:
                     EventLog.WriteEntry(sourceName, message, EventLogEntryType.Information, 1500);
                     break;

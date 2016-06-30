@@ -402,20 +402,15 @@ namespace AdPoolService
                         CCMApi.Terminate(oldSamAccountName);
                     }
 
-                    foreach (var prop in propNamesDestination)
-                    {
-                        string[] newValue;
-                        if (!propIgnoreDest.Contains(prop)
-                            && newProps.TryGetValue(prop, out newValue))
-                            CheckAndSetProperty(oldUser.Properties, prop, newValue, isNewUser);
-                    }
-                                        
+                    SetPropertiesToUser(oldUser, newProps);
+                                       
                     CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
                     oldUser.Properties["userAccountControl"].Value = NORMAL_ACCOUNT | DISABLED | PWD_NOTREQD;
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
                     
                     // Dest AD is commited.
+                    // Process CCM ....
 
                     bool isChangedImportantProps = changedImportantProps.Length > 0 || isNewUser;
 
@@ -430,15 +425,45 @@ namespace AdPoolService
                         return 0;
                     }
 
+                    int ccmResult;
                     try { 
-                        return CCMApi.CreateCPR(samAccountName, cprContent, adHint.CardPolicy); // return 0 if success
+                        ccmResult = CCMApi.CreateCPR(samAccountName, cprContent, adHint.CardPolicy); // return 0 if success
                     }
                     catch (Exception ex)
                     {
                         log.LogError(ex, "update user '" + samAccountName + "' in CCM: " + ex.Message);
                         return -1;
-                    }                   
+                    }
+
+                    if (ccmResult != 0)
+                    {
+                        // Rollback AD ...
+                        if (oldProps == null) // if created then delete
+                        {
+                            destOU.Children.Remove(oldUser);
+                            destOU.CommitChanges();
+                        }
+                        else
+                        {
+                            SetPropertiesToUser(oldUser, oldProps); // return to oldProps
+                            oldUser.CommitChanges();
+                        }
+                        log.LogWarn2("Rollback processed in AD for account '" + samAccountName + "' due to CCM error " + ccmResult + ". " + (oldProps == null? "Account deleted in AD": "Account attributes restored"));
+                        return -1;
+                    }
+                    return ccmResult;
                 }
+            }
+        }
+
+        private static void SetPropertiesToUser(DirectoryEntry oldUser, UserProperties oldProps)
+        {
+            foreach (var prop in propNamesDestination)
+            {
+                string[] newValue;
+                if (!propIgnoreDest.Contains(prop)
+                    && oldProps.TryGetValue(prop, out newValue))
+                    CheckAndSetProperty(oldUser.Properties, prop, newValue, true);
             }
         }
 

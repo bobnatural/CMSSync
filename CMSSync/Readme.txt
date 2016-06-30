@@ -18,7 +18,11 @@ SDK dlls.
 /d		- start as console app for debug.
 /?		- help
 
+todo: 
+If Ccm submit wasn't successful delete the account if we were doing a create transaction.
+
 ReleseNotes:
+
 5. if AD SSL connection failed but ClearLDAP works fine then look at System Log "Event ID: 36881 Source: Schannel".
 4. QualityCheck EventID=15 (Error)
 3. "ADHint is not found ... " EventID=150 (Warning)

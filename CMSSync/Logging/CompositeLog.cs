@@ -54,6 +54,10 @@ namespace AdPoolService.Logging
         public void LogWarn(string message, params object[] args) {
             DoForAllChildren(l => l.LogWarn(message, args));
         }
+        public void LogWarn2(string message, params object[] args)
+        {
+            DoForAllChildren(l => l.LogWarn2(message, args));
+        }
 
         public void LogInfo(string message, params object[] args) {
             DoForAllChildren(l => l.LogInfo(message, args));

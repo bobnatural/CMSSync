@@ -34,6 +34,11 @@ namespace AdPoolService
                 
         private static ISet<string> oUsToMonitor;
         private static ISet<string> oUsDNToMonitor;
+
+        /// <summary>
+        /// users which failes during initialization. We must try them agin till success.
+        /// </summary>
+        private static Dictionary<string, UserProperties> initializationFails = new Dictionary<string, UserProperties>();
         
         public static void Run(bool console = false)
         {
@@ -133,6 +138,12 @@ namespace AdPoolService
                                 success = true; // saved to Dest AD
                             //  if at least 1 user is succeeded then assume that whole iteration is succeeded
                             //  If all users are failed than seems to be CCM or AD is down and iteration should run again.
+
+                            if (initializationFails.Count > 0)
+                            {
+                                log.LogInfo("Process " + initializationFails.Count + " accounts which failed on startup ...");
+                                PutToDestinationAD(config.DestADServers, initializationFails.Values.ToList(), false);
+                            }
                         }
 
                         // if iteration is secceeded and highUSN is changed than save it to DB
@@ -374,7 +385,12 @@ namespace AdPoolService
                 try
                 {
                     if (PollAD.AddUser(server, props, cprContent) == 0)
+                    {
                         updatedCnt++; // success
+                        initializationFails.Remove(samAccount);
+                    }
+                    else if (initializeMode)
+                        initializationFails.Add(samAccount, props);
                 }
                 catch (Exception ex)
                 {
@@ -386,6 +402,7 @@ namespace AdPoolService
                 log.LogInfo("Updated " + updatedCnt + " user(s) of " + usersProps.Count);
             else
                 log.LogError("Updated " + updatedCnt + " user(s) of " + usersProps.Count + ". See previouse log records for errors.");
+
             return updatedCnt; // == usersProps.Count;
         }
 

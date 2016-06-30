@@ -8,6 +8,7 @@ namespace AdPoolService.Logging
             Debug,
             Info,
             Warn,
+            Warn2, 
             Error,
             Fatal
         }
@@ -34,6 +35,10 @@ namespace AdPoolService.Logging
 
         public virtual void LogWarn(string message, params object[] args) {
             WriteMessage(Severity.Warn, message.Fmt(args));
+        }
+        public virtual void LogWarn2(string message, params object[] args)
+        {
+            WriteMessage(Severity.Warn2, message.Fmt(args));
         }
 
         public virtual void LogInfo(string message, params object[] args) {
