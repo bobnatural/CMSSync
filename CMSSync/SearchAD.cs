@@ -102,7 +102,7 @@ namespace AdPoolService
                     //}
 #endif
                 }
-                
+
                 log.LogDebug(server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + " currentUSN=" + currentHighUSN);
 
                 if (String.IsNullOrEmpty(prevHighUSN))
@@ -149,7 +149,7 @@ namespace AdPoolService
                             var dn = (string)gr.Properties["distinguishedname"][0];
                             var membersGr = gr.Properties["member"];
                             ISet<string> cachedMembers;
-                            if(groupCache.TryGetValue(dn, out cachedMembers))
+                            if (groupCache.TryGetValue(dn, out cachedMembers))
                             {
                                 var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                                 foreach (string m in membersGr)
@@ -332,7 +332,7 @@ namespace AdPoolService
         ///         1  - succesfully updated and changedImportantProps
         ///         -1 - error
         /// </summary>
-        public static int AddUser(ADServer server, UserProperties newProps, string cprContent) 
+        public static int AddUser(ADServer server, UserProperties newProps, string cprContent)
         {
             // props["userPrincipalName"], props["displayName"], props["givenName"], props["sn"], props["mail"], props["initials"], props["objectSID"]
             string samAccountName = newProps["samAccountName"][0];
@@ -359,7 +359,7 @@ namespace AdPoolService
                     var messageHint = "ADHint is not found for user '" + samAccountName + "'. Attributes:" + PrintAttributes(newProps);
                     if (Settings.Default.DataMismatchLogging)
                         log.LogWarn(messageHint);
-                    else 
+                    else
                         log.LogDebug(messageHint);
                     return 0;
                 }
@@ -371,7 +371,7 @@ namespace AdPoolService
                 // Process ...
                 if (adHint.Type == ADHintElement.AdHintType.Terminate)
                     return CCMApi.Terminate(oldSamAccountName); // return 0 if success
-                
+
                 string destPath = server.path + "/" + adHint.DestOU;  // ="LDAP://myServ.local:636/OU=Office21,OU=Office2,OU=Domain Controllers,DC=myServ,DC=local"
 
                 using (var destOU = new DirectoryEntry(destPath, server.ServerUserName, server.ServerPassword, server.authTypes))
@@ -394,8 +394,8 @@ namespace AdPoolService
                     }
 
                     string changedImportantProps = transResult;
-                    
-                    changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[]{samAccountName}); // AD key
+
+                    changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[] { samAccountName }); // AD key
                     if (!isNewUser && changedImportantProps.Length > 0)
                     {
                         log.LogInfo("Changed account attributes: " + changedImportantProps + "Terminating '" + oldSamAccountName + "' in CCM ...");
@@ -403,12 +403,12 @@ namespace AdPoolService
                     }
 
                     SetPropertiesToUser(oldUser, newProps);
-                                       
+
                     CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
                     oldUser.Properties["userAccountControl"].Value = NORMAL_ACCOUNT | DISABLED | PWD_NOTREQD;
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
-                    
+
                     // Dest AD is commited.
                     // Process CCM ....
 
@@ -426,7 +426,8 @@ namespace AdPoolService
                     }
 
                     int ccmResult;
-                    try { 
+                    try
+                    {
                         ccmResult = CCMApi.CreateCPR(samAccountName, cprContent, adHint.CardPolicy); // return 0 if success
                     }
                     catch (Exception ex)
@@ -448,7 +449,7 @@ namespace AdPoolService
                             SetPropertiesToUser(oldUser, oldProps); // return to oldProps
                             oldUser.CommitChanges();
                         }
-                        log.LogWarn2("Rollback processed in AD for account '" + samAccountName + "' due to CCM error " + ccmResult + ". " + (oldProps == null? "Account deleted in AD": "Account attributes restored"));
+                        log.LogWarn2("Rollback processed in AD for account '" + samAccountName + "' due to CCM error " + ccmResult + ". " + (oldProps == null ? "Account deleted in DestinationAD" : "Account attributes restored in DestinationAD"));
                         return -1;
                     }
                     return ccmResult;
@@ -501,13 +502,13 @@ namespace AdPoolService
                 //    || (!(newValue is string) && !Equals(newValue, prop.Value)))
                 if (!CheckEquals(prop, newValue))
                 {
-                    string res = "[" + propName + "]='" + prop.Value + "' -> '" + (newValue!=null && newValue.Length>0? newValue[0]: "(null)") + "'; ";
-                    log.LogDebug("   " + res); 
+                    string res = "[" + propName + "]='" + prop.Value + "' -> '" + (newValue != null && newValue.Length > 0 ? newValue[0] : "(null)") + "'; ";
+                    log.LogDebug("   " + res);
                     prop.Value = newValue;
                     return res;
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 log.LogError(ex, "Set attribute name [" + propName + "] with new value = '" + newValue + "'");
             }
@@ -556,7 +557,7 @@ namespace AdPoolService
                             {
                                 var dn = (string)gr.Properties["distinguishedname"][0];
                                 var membersGr = gr.Properties["member"];
-                                if(groupsFilter.Contains(dn))
+                                if (groupsFilter.Contains(dn))
                                 {
                                     var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                                     foreach (string m in membersGr)

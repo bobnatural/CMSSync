@@ -31,7 +31,7 @@ namespace AdPoolService
         private static HeartbeatMonitor hb;
         private static SettingsConfiguration config;
         private static string cprContent;
-                
+
         private static ISet<string> oUsToMonitor;
         private static ISet<string> oUsDNToMonitor;
 
@@ -39,11 +39,11 @@ namespace AdPoolService
         /// users which failes during initialization. We must try them agin till success.
         /// </summary>
         private static Dictionary<string, UserProperties> initializationFails = new Dictionary<string, UserProperties>();
-        
+
         public static void Run(bool console = false)
         {
             BackgroundPool.config = new SettingsConfiguration();
-            
+
             oUsToMonitor = config.OUsToMonitor;
             oUsDNToMonitor = config.OUsDNToMonitor;
 
@@ -138,12 +138,6 @@ namespace AdPoolService
                                 success = true; // saved to Dest AD
                             //  if at least 1 user is succeeded then assume that whole iteration is succeeded
                             //  If all users are failed than seems to be CCM or AD is down and iteration should run again.
-
-                            if (initializationFails.Count > 0)
-                            {
-                                log.LogInfo("Process " + initializationFails.Count + " accounts which failed on startup ...");
-                                PutToDestinationAD(config.DestADServers, initializationFails.Values.ToList(), false);
-                            }
                         }
 
                         // if iteration is secceeded and highUSN is changed than save it to DB
@@ -152,6 +146,11 @@ namespace AdPoolService
                             lastHighUSNs[ad.GetInvocationID] = ad.CurrentHighUSN;
                             // SaveCurrentHighUSN(ad.GetInvocationID, ad.CurrentHighUSN);
                         }
+                    }
+                    if (initializationFails.Count > 0)
+                    {
+                        log.LogInfo("Process " + initializationFails.Count + " accounts which failed on startup ...");
+                        PutToDestinationAD(config.DestADServers, initializationFails.Values.ToList(), false);
                     }
                 }
                 catch (Exception ex)
@@ -305,7 +304,7 @@ namespace AdPoolService
                 }
             }
         }
-       
+
         private static PollAD GetFromSourceAD(IDictionary<string, string> successHighUSNs)
         {
             foreach (var server in config.SourceADServers)
@@ -381,22 +380,23 @@ namespace AdPoolService
             foreach (var props in usersProps)
             {
                 var samAccount = props["samAccountName"][0];
-                              
+                var objectSID = props["objectSID"][0];
+
                 try
                 {
                     if (PollAD.AddUser(server, props, cprContent) == 0)
                     {
                         updatedCnt++; // success
-                        initializationFails.Remove(samAccount);
+                        initializationFails.Remove(objectSID);
                     }
                     else if (initializeMode)
-                        initializationFails.Add(samAccount, props);
+                        initializationFails.Add(objectSID, props);
                 }
                 catch (Exception ex)
                 {
                     log.LogError(ex, "Save user '" + samAccount + "' to Destination AD Server: " + (server != null ? server.Name : "null" + ": " + ex.Message));
                     continue;
-                }                
+                }
             }
             if (updatedCnt == usersProps.Count)
                 log.LogInfo("Updated " + updatedCnt + " user(s) of " + usersProps.Count);
