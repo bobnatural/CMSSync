@@ -175,11 +175,16 @@ namespace AdPoolService
 
             UserProperties userPropsFrom = new Dictionary<string, string[]>() { 
             { "L", new string[]{"Boston","Tokio"} }, 
-            { "facsimileTelephoneNumber", new string[]{"123"} }, 
+            { "facsimileTelephoneNumber", new string[]{"12qwe"} }, 
             { "mobile", new string[]{"7"} }, 
             { "mail", new string[]{"123DfG123"} }, 
             { "userPrincipalName", new string[]{"123"} }, };
-            UserProperties userPropsTo = new Dictionary<string, string[]>() { { "L", new string[] { "Boston" } }, { "facsimileTelephoneNumber", new string[] { "123" } }, { "mobile", new string[] { "4" } } };
+            UserProperties userPropsTo = new Dictionary<string, string[]>() { 
+            { "L", new string[] { "Boston" } }, 
+            { "facsimileTelephoneNumber", new string[] { "0123" } }, 
+            { "userAccountControl", new string[] { Convert.ToString(0x40000) } }, 
+            { "mobile", new string[] { "4" } } 
+            };
 
             string transResult;
             ADHintElement adHint = ADHintsConfigurationSection.GetOUByAttributes(userPropsTo, userPropsFrom, out transResult);
@@ -375,36 +380,40 @@ namespace AdPoolService
         /// <returns>count of successed users</returns>
         private static int PutToDestinationAD(ADServer[] servers, List<UserProperties> usersProps, bool initializeMode)
         {
-            ADServer server = servers[0];
             int updatedCnt = 0;
-
-            foreach (var props in usersProps)
+            foreach (var props in usersProps) // for each user
             {
                 var samAccount = props["samAccountName"][0];
                 var objectSID = props["objectSID"][0];
-
-                try
+                foreach (ADServer server in servers)
                 {
-                    if (PollAD.AddUser(server, props, cprContent) == 0)
+                    try
                     {
-                        updatedCnt++; // success
-                        initializationFails.Remove(objectSID);
+                        if (PollAD.AddUser(server, props, cprContent, servers.Where(s => s.Name != server.Name).ToArray()) == 0)
+                        {
+                            updatedCnt++; // success
+                            initializationFails.Remove(objectSID);
+                        }
+                        else if (initializeMode)
+                            initializationFails.Add(objectSID, props);
+                        break; // success
                     }
-                    else if (initializeMode)
-                        initializationFails.Add(objectSID, props);
-                }
-                catch (Exception ex)
-                {
-                    log.LogError(ex, "Save user '" + samAccount + "' to Destination AD Server: " + (server != null ? server.Name : "null" + ": " + ex.Message));
-                    continue;
+                    catch (Exception ex)
+                    {
+                        log.LogError(ex, "Save user '" + samAccount + "' to Destination AD Server: " + (server != null ? server.Name : "null" + ": " + ex.Message));
+                        if (ex.HResult != -2147016646) //server is not operational
+                            break; // no need to try another server if server is available
+                    }
+                    // try next server
                 }
             }
             if (updatedCnt == usersProps.Count)
                 log.LogInfo("Updated " + updatedCnt + " user(s) of " + usersProps.Count);
             else
                 log.LogError("Updated " + updatedCnt + " user(s) of " + usersProps.Count + ". See previouse log records for errors.");
-
+                
             return updatedCnt; // == usersProps.Count;
+            throw new Exception("Unable to connect to any Destination servers");
         }
 
         public static void Stop()

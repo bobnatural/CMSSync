@@ -238,25 +238,37 @@ namespace AdPoolService.HealthCheck {
         {
             string errors = string.Empty;
 
+            bool anySuccess = false;
             foreach (var server in configuration.DestADServers)
             {
-                log.LogDebug("check ADHints in Destination AD server " + server.Name + " ...");
                 bool hasSuccessHintOU = false;
+                log.LogDebug("check ADHints in Destination AD server " + server.Name + " ...");
                 var msg = CheckOUExists(server, ADHintsConfigurationSection.GetAllOUs(), out hasSuccessHintOU);
+                if (hasSuccessHintOU)
+                {
+                    anySuccess = true;
+                    break; // one working server is enough
+                }
                 errors += msg;
-                if (!hasSuccessHintOU)
-                    return CheckResult.FailWith("No valid DestOUs found in ADHintSettings." + Environment.NewLine + errors);
             }
+            if (!anySuccess)
+                return CheckResult.FailWith("No valid DestOUs found in ADHintSettings." + Environment.NewLine + errors);
 
+            anySuccess = false;
             foreach (var server in configuration.SourceADServers)
             {
                 log.LogDebug("check OUsDNToMonitor in Source AD server " + server.Name + " ...");
                 bool hasSuccessMonitor = configuration.OUsDNToMonitor.Count == 0;
                 var msg = CheckOUExists(server, configuration.OUsDNToMonitor.ToArray(), out hasSuccessMonitor);
+                if (hasSuccessMonitor)
+                {
+                    anySuccess = true;
+                    break; // one working server is enough
+                }
                 errors += msg;
-                if (!hasSuccessMonitor)
-                    return CheckResult.FailWith("No valid OUs found in OUsDNToMonitorSettings." + Environment.NewLine + errors);
             }
+            if (!anySuccess)
+                return CheckResult.FailWith("No valid OUs found in OUsDNToMonitorSettings." + Environment.NewLine + errors);
 
             if (!string.IsNullOrEmpty(errors))
                 return CheckResult.WarningWith(errors);

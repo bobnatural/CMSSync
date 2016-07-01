@@ -100,21 +100,10 @@ namespace Cmssync
                 bool hintMatched = true;
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                 {
-                    bool attrFound = false;
-                    string[] userAttrValue;
-                    if (userPropsNew.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
-                        foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
-                        {
-                            if (userAttrValue != null && userAttrValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
-                            {
-                                attrFound = true;
-                                break;
-                            }
-                        }
-                    if (!attrFound)
+                    if (!MatchAttributeValues(userPropsNew, hintAttr))
                     {
-                        hintMatched = false;
-                        break;
+                        hintMatched = false; // if any hintvalue is not matched 
+                        break; // Then Hint is not matched
                     }
                 }
                 if (hintMatched) // all attributes are found and equal
@@ -130,6 +119,36 @@ namespace Cmssync
                 }
             } // foreach ADHints
             return null;
+        }
+
+        /// <summary>
+        /// try if userAttributeValues equal at least one of HintAttribute Value
+        /// </summary>
+        /// <param name="userPropsNew"></param>
+        /// <param name="hintAttr"></param>
+        /// <returns></returns>
+        private static bool MatchAttributeValues(UserProperties userPropsNew, HintAttribute hintAttr)
+        {
+            string[] userAttrValue;
+            if (hintAttr.Name.Trim().Equals("ACCOUNTDISABLE", StringComparison.OrdinalIgnoreCase) || hintAttr.Name.Trim().Equals("SMARTCARD_REQUIRED", StringComparison.OrdinalIgnoreCase))
+            {
+                Utils.UserAccountControl uaEnum; // flag
+                UInt32 userAccountControl;
+                if (Enum.TryParse(hintAttr.Name.Trim(), out uaEnum) && userPropsNew.TryGetValue("userAccountControl", out userAttrValue) && userAttrValue != null && UInt32.TryParse(userAttrValue[0], out userAccountControl))
+                    foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
+                    {
+                        var hintVal = hintAttrVal.Value.Trim();
+                        if (((userAccountControl & (UInt32)uaEnum) != 0) == Convert.ToBoolean(hintVal) || hintVal == "*")
+                            return true;
+                    }
+            }
+            else if (userPropsNew.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
+                foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
+                {
+                    if (userAttrValue != null && Utils.MatchValueInArray(hintAttrVal.Value.Trim(), userAttrValue))
+                        return true; // at least one value is equal
+                }
+            return false;
         }        
     }
 
@@ -293,32 +312,7 @@ namespace Cmssync
                     foreach(CheckAttributeValue chkVal in checkAttr.CheckAttributeValues)
                     {
                         if (found) break;
-                        if (chkVal.Value.StartsWith("*") && chkVal.Value.EndsWith("*"))
-                        {
-                            if(chkVal.Value.Length == 1) // "*"
-                            {
-                                if (userValue != null && userValue.Any(v => !string.IsNullOrEmpty(v)))
-                                    found = true;
-                            }
-                            else // "*abc*"
-                            {
-                                var actValue = chkVal.Value.Remove(0,1); // remove first *
-                                actValue = actValue.Remove(actValue.Length - 1, 1); // remove last *
-                                found = userValue.Any(v => v.IndexOf(actValue, StringComparison.OrdinalIgnoreCase) > 0);
-                            }
-                        }
-                        else if (chkVal.Value.StartsWith("*")) // "*abc"
-                        {
-                            var actValue = chkVal.Value.Remove(0, 1);
-                            found = userValue.Any(v => v.EndsWith(actValue, StringComparison.OrdinalIgnoreCase));
-                        }
-                        else if (chkVal.Value.EndsWith("*")) // "abc*"
-                        {
-                            var actValue = chkVal.Value.Remove(chkVal.Value.Length - 1, 1);
-                            found = userValue.Any(v => v.StartsWith(actValue, StringComparison.OrdinalIgnoreCase));
-                        }
-                        else // "abc"
-                            found = userValue.Contains(chkVal.Value, StringComparer.OrdinalIgnoreCase);
+                        found = Utils.MatchValueInArray(chkVal.Value, userValue);
                     }
                 if(!found)
                 {

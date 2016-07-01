@@ -7,6 +7,7 @@ using System.DirectoryServices;
 using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Security.Principal;
+using System.Threading;
 using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 
 namespace AdPoolService
@@ -23,15 +24,11 @@ namespace AdPoolService
         private static ILog log = new NullLog();
 
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
-        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager"};
+        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl"};
         // ignore to update Destination:
-        public static readonly ISet<string> propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
+        public static readonly ISet<string> propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf", "ACCOUNTDISABLE", "SMARTCARD_REQUIRED" };
         public static List<string> propNamesAll; // hard + hint + transition props for SourceAD
         public static List<string> propNamesDestination; // hard + transition props for DestAD
-
-        static readonly int NORMAL_ACCOUNT = 0x200; // normal account
-        static readonly int PWD_NOTREQD = 0x20; // password not required
-        static readonly int DISABLED = 0x002; //account disabled
 
         private static IDictionary<string, ISet<string>> groupCache; // cache of groups
 
@@ -248,14 +245,14 @@ namespace AdPoolService
                     ds.PropertiesToLoad.Add(p);
 
                 var res = ds.FindOne();
-                if (res != null)  // if user is exist
-                    user = res.GetDirectoryEntry(); // then update
+                if (res != null)  // if user is found by ObjectSID
+                    user = res.GetDirectoryEntry(); // 
                 else // case if ObjectSID is not initialized
                 {
                     ds.Filter = string.Format("(&(objectClass=user)(objectCategory=person)(sAMAccountName={0}))", samAccountName);
                     res = ds.FindOne();
                     if (res != null && (res.Properties["Pager"].Count == 0 || string.IsNullOrEmpty((string)res.Properties["Pager"][0])))  // if user is exist and objectSID is not initialized
-                        user = res.GetDirectoryEntry(); // then update
+                        user = res.GetDirectoryEntry(); // found by samAccountName
                 }
             }
             return user;
@@ -332,7 +329,7 @@ namespace AdPoolService
         ///         1  - succesfully updated and changedImportantProps
         ///         -1 - error
         /// </summary>
-        public static int AddUser(ADServer server, UserProperties newProps, string cprContent)
+        public static int AddUser(ADServer server, UserProperties newProps, string cprContent, ADServer[] serversToWait)
         {
             // props["userPrincipalName"], props["displayName"], props["givenName"], props["sn"], props["mail"], props["initials"], props["objectSID"]
             string samAccountName = newProps["samAccountName"][0];
@@ -405,7 +402,7 @@ namespace AdPoolService
                     SetPropertiesToUser(oldUser, newProps);
 
                     CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
-                    oldUser.Properties["userAccountControl"].Value = NORMAL_ACCOUNT | DISABLED | PWD_NOTREQD;
+                    oldUser.Properties["userAccountControl"].Value = Utils.UserAccountControl.NORMAL_ACCOUNT | Utils.UserAccountControl.ACCOUNTDISABLE | Utils.UserAccountControl.PWD_NOTREQD;
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
 
@@ -424,6 +421,8 @@ namespace AdPoolService
                         log.LogWarn("CCMHost is not set. Skip CCM processing");
                         return 0;
                     }
+
+                    WaitDestinationADReplication(samAccountName, newProps["objectSID"][0], serversToWait);
 
                     int ccmResult;
                     try
@@ -454,6 +453,38 @@ namespace AdPoolService
                     }
                     return ccmResult;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Check that the account exists in all secondary destination AD. Only after the account exists in all others Dest AD then send in the CPR to CMS.
+        /// </summary>
+        /// <param name="samAccountName"></param>
+        /// <param name="objectSID"></param>
+        /// <param name="serversToWait"></param>
+        private static void WaitDestinationADReplication(string samAccountName, string objectSID, ADServer[] serversToWait)
+        {
+            while (true)
+            {
+                List<string> serversFailed = new List<string>();
+                foreach (var server in serversToWait)
+                {
+                    try
+                    {
+                        using (DirectoryEntry searchOU = new DirectoryEntry(server.path, server.ServerUserName, server.ServerPassword, server.authTypes))
+                            if (LoadUserByObjectSID(searchOU, objectSID, samAccountName) == null)
+                                serversFailed.Add(server.Name);
+                    }
+                    catch(Exception ex)
+                    {
+                        serversFailed.Add(server.Name);
+                    }
+                }
+                if (serversFailed.Count == 0)
+                    break; // AD replication seems to be complete
+
+                log.LogInfo("Waiting for user '" + samAccountName + "' to be created on server(s): " + string.Join("; ", serversFailed.ToArray()));
+                Thread.Sleep(3000);
             }
         }
 
