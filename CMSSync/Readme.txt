@@ -18,11 +18,10 @@ SDK dlls.
 /d		- start as console app for debug.
 /?		- help
 
-todo: 
-If Ccm submit wasn't successful delete the account if we were doing a create transaction.
+TODO: 
 
 ReleseNotes:
-
+6. If CCM submit fails then Rollback Destination AD action (delete user or rollback attributes). Print warning to log with EventID=151. If this occurred in startup then accounts stored in list and will be processed again during Polling.
 5. if AD SSL connection failed but ClearLDAP works fine then look at System Log "Event ID: 36881 Source: Schannel".
 4. QualityCheck EventID=15 (Error)
 3. "ADHint is not found ... " EventID=150 (Warning)

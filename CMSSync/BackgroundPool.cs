@@ -95,11 +95,7 @@ namespace AdPoolService
 
             PollAD.Log = log;
             CCMApi.log = log;
-
-            if (File.Exists(Path.Combine(HomeFolder, config.CCMCPRFile)))
-                cprContent = SettingsConfiguration.LoadCPRFile(Path.Combine(HomeFolder, config.CCMCPRFile));
-            else
-                cprContent = SettingsConfiguration.CPRFileContent;
+            CCMApi.interCcmSpacing = config.interCcmSpacing;
 
 #if DEBUG
             uniTest();
@@ -113,6 +109,11 @@ namespace AdPoolService
                 {
                     if (!canWork)
                         break;
+
+                    if (File.Exists(Path.Combine(HomeFolder, config.CCMCPRFile)))
+                        cprContent = SettingsConfiguration.LoadCPRFile(Path.Combine(HomeFolder, config.CCMCPRFile));
+                    else
+                        cprContent = SettingsConfiguration.CPRFileContent;
 
                     PollAD ad = GetFromSourceAD(lastHighUSNs);
                     bool success = false;

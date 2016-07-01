@@ -119,6 +119,10 @@ namespace AdPoolService
         {
             get { return Settings.Default.CCMPort; }
         }
+        public int interCcmSpacing 
+        {
+            get { return Settings.Default.InterCCMSpacing; }
+        }
 
         public static string CPRFileContent
         {

@@ -10,8 +10,9 @@ namespace Cmssync
 {
     static class CCMApi
     {
-        public static ILog log { set; private get; } 
-
+        public static ILog log { set; private get; }
+        public static double interCcmSpacing { set; private get; }
+        private static DateTime lastCcmCall = DateTime.MinValue;
 
         [DllImport("ccmapi2.dll", EntryPoint = "createCPR", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
         private static extern int createCPR(
@@ -48,7 +49,13 @@ namespace Cmssync
 
         public static int Terminate(string samAccount)
         {
-            log.LogInfo("Terminate user in CCM '{0}': samAccountName='{1}' ...", Settings.Default.CCMHost, samAccount);
+            double waitInterval = Math.Round(interCcmSpacing - (DateTime.Now - lastCcmCall).TotalSeconds, 1);
+
+            log.LogInfo("Terminate user in CCM '{0}': samAccountName='{1}'{2} ...", Settings.Default.CCMHost, samAccount, 
+                waitInterval > 0 ? ". Waitfor delay " + waitInterval + " sec": "");
+            if (waitInterval > 0 && waitInterval < 100)
+                System.Threading.Thread.Sleep((int)(waitInterval * 1000));
+
             int res = 0;
             if (Settings.Default.CCMHost.Trim().Length != 0)
             {
@@ -56,6 +63,7 @@ namespace Cmssync
                         Settings.Default.CCMCertificateSerial.Trim().ToLower(), // CMS required lowcase letters !
                         Settings.Default.CCMCertificateIssuer.Trim(),
                         samAccount);
+                lastCcmCall = DateTime.Now;
                 if (res == 0)
                     log.LogInfo("Terminate user '" + samAccount + "' in CCM complete successfully");
                 else
@@ -73,7 +81,12 @@ namespace Cmssync
         {
             try
             {
-                log.LogInfo("update user in CCM '{0}': samAccountName='{1}', CardPolicy='{2}' ...", Settings.Default.CCMHost, user, cardPolicy);
+                double waitInterval = Math.Round(interCcmSpacing - (DateTime.Now - lastCcmCall).TotalSeconds, 2);
+
+                log.LogInfo("update user in CCM '{0}': samAccountName='{1}', CardPolicy='{2}'{3} ...",
+                    Settings.Default.CCMHost, user, cardPolicy, waitInterval > 0 ? ". Waitfor delay " + waitInterval + " sec" : "");
+                if (waitInterval > 0 && waitInterval < 100)
+                    System.Threading.Thread.Sleep((int)(waitInterval * 1000));
 
                 var res = CCMApi.createCPR(Settings.Default.CCMHost, Settings.Default.CCMPort,
                     Settings.Default.CCMCertificateSerial.Trim().ToLower(), // CMS required lowcase letters !
@@ -84,6 +97,8 @@ namespace Cmssync
                     cardPolicy, // "test6", // "F2F"
                     ""
                     );
+                lastCcmCall = DateTime.Now;
+
                 if (res == 0)
                     log.LogInfo("update user '" + user + "' in CCM complete successfully");
                 else

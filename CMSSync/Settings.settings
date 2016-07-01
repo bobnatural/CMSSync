@@ -30,7 +30,10 @@
       <Value Profile="(Default)">CN = ActivIdentity Generated Ca</Value>
     </Setting>
     <Setting Name="DataMismatchLogging" Type="System.Boolean" Scope="Application">
-      <Value Profile="(Default)">True</Value>
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="InterCCMSpacing" Type="System.Int32" Scope="Application">
+      <Value Profile="(Default)">0</Value>
     </Setting>
   </Settings>
 </SettingsFile>
