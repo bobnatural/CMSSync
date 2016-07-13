@@ -13,8 +13,11 @@ namespace Cmssync.Extensions
             NORMAL_ACCOUNT = 0x200, // normal account
             PWD_NOTREQD = 0x20, // password not required
             ACCOUNTDISABLE = 0x002, //account disabled
+            DONT_EXPIRE_PASSWORD = 	0x10000,
             SMARTCARD_REQUIRED = 0x40000,
         }
+
+        public static readonly ISet<string> UserAccountControlFlags = new HashSet<string>(((IEnumerable<UserAccountControl>)Enum.GetValues(typeof(UserAccountControl))).Select(f => f.ToString()), StringComparer.OrdinalIgnoreCase);
 
         public static bool CheckEquals(string[] values1, string[] values2)
         {

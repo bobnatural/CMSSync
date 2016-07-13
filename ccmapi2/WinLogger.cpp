@@ -35,7 +35,7 @@ void WinLogger::LogFormat(int type, const char* format, va_list args) throw()
 				//Format and print message
 				_vsnprintf_s(szBuffer, (1024 * 64) / sizeof(char) - sizeof(char), _TRUNCATE, format, args);
 				
-				Log(type, szBuffer);
+				Log(type, 1100, szBuffer);
 			}
 		}
 		__finally{
@@ -46,7 +46,7 @@ void WinLogger::LogFormat(int type, const char* format, va_list args) throw()
 	}
 }
 
-void WinLogger::Log(int type, const char* szMsg) throw()
+void WinLogger::Log(int type, DWORD eventID, const char* szMsg) throw()
 {
 	//char szTime[1024];
 	//SYSTEMTIME time = { 0 };
@@ -58,7 +58,7 @@ void WinLogger::Log(int type, const char* szMsg) throw()
 	//	time.wSecond, time.wMilliseconds);
 
 	HANDLE eventLog = OpenEventLog(NULL, this->sourceName);
-	ReportEvent(eventLog, (WORD)type, 0, 1, NULL, 1, 0, &szMsg, NULL);
+	ReportEvent(eventLog, (WORD)type, 0, eventID, NULL, 1, 0, &szMsg, NULL);
 
 	//::WriteToLog_Handle(hLogFile, szTime);
 	//::WriteToLog_Handle(hLogFile, szMsg);
@@ -97,19 +97,19 @@ void WinLogger::SuccessFormat(const char* format, ...) throw()
 
 
 // Log4Net style:
-void WinLogger::Error(const char* msg) throw()
+void WinLogger::Error(const char* msg, DWORD eventID = 14) throw()
 {
-	Log(EVENTLOG_ERROR_TYPE, msg);
+	Log(EVENTLOG_ERROR_TYPE, eventID, msg);
 }
 void WinLogger::Warn(const char* msg) throw()
 {
-	Log(EVENTLOG_WARNING_TYPE, msg);
+	Log(EVENTLOG_WARNING_TYPE, 149, msg);
 }
 void WinLogger::Info(const char* msg) throw()
 {
-	Log(EVENTLOG_INFORMATION_TYPE, msg);
+	Log(EVENTLOG_INFORMATION_TYPE, 1499, msg);
 }
 void WinLogger::Success(const char* msg) throw()
 {
-	Log(EVENTLOG_SUCCESS, msg);
+	Log(EVENTLOG_SUCCESS, 1501, msg);
 }

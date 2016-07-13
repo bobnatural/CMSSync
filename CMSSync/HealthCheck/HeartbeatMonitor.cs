@@ -58,8 +58,11 @@ namespace AdPoolService.HealthCheck {
             {
                 if (DateTime.Now.Subtract(lastTime).TotalSeconds > configuration.ServiceHealthCheckInterval) // check each 10 seconds
                 {
-                    TryServers("Source AD", configuration.SourceADServers);
-                    TryServers("Destination AD", configuration.DestADServers);
+                    List<string> failedServers = new List<string>();
+                    failedServers.AddRange(TryServers(configuration.SourceADServers));
+                    failedServers.AddRange(TryServers(configuration.DestADServers));
+                    if (failedServers.Count > 0)
+                        LogHelper.GetLogger().WriteEntry("Server(s) failed to responce:" + Environment.NewLine + string.Join(Environment.NewLine, failedServers), EventLogEntryType.Warning, LogHelper.EVT_FAILED_HB);
                     TryCMS();
                     lastTime = DateTime.Now;
                 }
@@ -67,21 +70,21 @@ namespace AdPoolService.HealthCheck {
             }
         }
 
-        private bool TryServers(string srvType, ADServer[] srvList)
+        private List<string> TryServers(ADServer[] srvList)
         {
+            List<string> failedServers = new List<string>();
             foreach (var srv in srvList)
             {
                 string msg;
                 if (!string.IsNullOrEmpty(msg = SendHb(srv)))
-                {
-                    var authType = srv.SSL?"(SSL)":"(not SSL)";
-                    LogHelper.GetLogger().WriteEntry(srvType + " Server '" + srv.Name + "' " + authType + " failed to responce: " + msg, EventLogEntryType.Warning, LogHelper.EVT_FAILED_HB);
-                }
+                    failedServers.Add(srv.ToString() + ". " + msg);
             }
-            return true;
+            return failedServers;
         }
         private bool TryCMS()
         {
+            if (configuration.CCMHost.TrimEnd().Length == 0)
+                return true;
             try
             {
                 return 0 == Cmssync.CCMApi.CheckHealth(configuration.CCMHost, configuration.CCMPort,

@@ -44,6 +44,11 @@ namespace Cmssync
             }
         }
 
+        public override string ToString()
+        {
+            return SourceDest + " AD Server '" + Name + "' " + (SSL ? "(SSL)" : "(not SSL)");
+        }
+
         public LdapConnection getLapConnection
         {
             get

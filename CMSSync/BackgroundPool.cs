@@ -14,8 +14,6 @@ using AdPoolService.HealthCheck;
 using System.Runtime.InteropServices;
 using System.DirectoryServices.Protocols;
 using Cmssync;
-
-using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 using Cmssync.Extensions;
 
 namespace AdPoolService
@@ -115,7 +113,7 @@ namespace AdPoolService
                     else
                         cprContent = SettingsConfiguration.CPRFileContent;
 
-                    PollAD ad = GetFromSourceAD(lastHighUSNs);
+                    PollAD ad = GetAvailableAD(config.SourceADServers, lastHighUSNs);
                     bool success = false;
 
                     if (ad == null)
@@ -173,24 +171,26 @@ namespace AdPoolService
             //    fs.Close();
             //}
 
-            UserProperties userPropsFrom = new Dictionary<string, string[]>() { 
+            UserProperties userPropsFrom = new UserProperties() { 
             { "L", new string[]{"Boston","Tokio"} }, 
-            { "facsimileTelephoneNumber", new string[]{"12qwe"} }, 
+            { "facsimileTelephoneNumber", new string[]{"123"} }, 
             { "mobile", new string[]{"7"} }, 
             { "mail", new string[]{"123DfG123"} }, 
             { "userPrincipalName", new string[]{"123"} }, };
-            UserProperties userPropsTo = new Dictionary<string, string[]>() { 
+            UserProperties userPropsTo = new UserProperties() { 
             { "L", new string[] { "Boston" } }, 
-            { "facsimileTelephoneNumber", new string[] { "0123" } }, 
-            { "userAccountControl", new string[] { Convert.ToString(0x40000) } }, 
+            { "facsimileTelephoneNumber", new string[] { "456" } }, 
+            { "userAccountControl", new string[] { Convert.ToString((uint)Utils.UserAccountControl.SMARTCARD_REQUIRED) } }, 
             { "mobile", new string[] { "4" } } 
             };
 
             string transResult;
             ADHintElement adHint = ADHintsConfigurationSection.GetOUByAttributes(userPropsTo, userPropsFrom, out transResult);
-            var qualityCheck = adHint.QualityCheck(userPropsFrom);
-
-            // var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
+            if (adHint != null)
+            {
+                var qualityCheck = adHint.QualityCheck(userPropsFrom);
+                //var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
+            }            
         }
 
         private static void InitializeAllAccounts()
@@ -198,20 +198,8 @@ namespace AdPoolService
             CacheAllGroups();
 
             log.LogInfo("Initialize accounts ...");
-            PollAD adSource = GetFromSourceAD(null);
-            if (adSource == null)
-                return;
-
-            PollAD adDest = null;
-            try
-            {
-                adDest = new PollAD(config.DestADServers[0], null, true);
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Failed to connect to Destination AD Server " + config.DestADServers[0].Name + ": " + ex.Message);
-                return;
-            }
+            PollAD adSource = GetAvailableAD(config.SourceADServers, null);
+            PollAD adDest = GetAvailableAD(config.DestADServers, null);
 
             try
             {
@@ -234,6 +222,7 @@ namespace AdPoolService
                 if (cnt - adSource.ChangedUsersProperties.Count > 0)
                     log.LogInfo("Filtered out " + (cnt - adSource.ChangedUsersProperties.Count) + " accounts");
 
+                // Compare Source and Destination users ...
                 foreach (var userProps in adSource.ChangedUsersProperties)
                 {
                     UserProperties destUser = null;
@@ -302,29 +291,31 @@ namespace AdPoolService
                 try
                 {
                     PollAD.GetGroupMembers(server, ADHintsConfigurationSection.GetAllGroups());
-                    return;
+                    return; // first available source AD
                 }
                 catch (Exception ex)
                 {
-                    log.LogError(ex, "Failed to connect to Source AD Server " + server.Name + ": " + ex.Message);
+                     log.LogDebug("Failed to connect to " + server.ToString() + ": " + ex.Message);
                 }
             }
+            throw new Exception("No Source AD Servers available");
         }
 
-        private static PollAD GetFromSourceAD(IDictionary<string, string> successHighUSNs)
+        private static PollAD GetAvailableAD(ADServer[] servers, IDictionary<string, string> successHighUSNs)
         {
-            foreach (var server in config.SourceADServers)
+            foreach (var server in servers)
             {
                 try
                 {
+                    // first available AD
                     return new PollAD(server, successHighUSNs);
                 }
                 catch (Exception ex)
                 {
-                    log.LogError(ex, "Failed to connect to Source AD Server " + server.Name + ": " + ex.Message);
+                    log.LogDebug("Failed to connect to " + server.ToString() + ": " + ex.Message);
                 }
             }
-            return null; // fail
+            throw new Exception("No " + servers[0].SourceDest + " AD Servers available");
         }
 
 

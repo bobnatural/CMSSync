@@ -9,9 +9,9 @@ public:
 	WinLogger(const char* sourceName);
 	~WinLogger();
 	void LogFormat(int type, const char* format, va_list args) throw();
-	void Log(int type, const char* szMsg) throw();
+	void Log(int type, DWORD eventID, const char* szMsg) throw();
 
-	virtual void Error(const char* format) throw();
+	virtual void Error(const char* format, DWORD eventID) throw();
 	virtual void Warn(const char* format) throw();
 	virtual void Info(const char* format) throw();
 	virtual void Success(const char* format) throw();

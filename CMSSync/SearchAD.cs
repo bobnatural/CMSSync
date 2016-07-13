@@ -8,7 +8,6 @@ using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Security.Principal;
 using System.Threading;
-using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 
 namespace AdPoolService
 {
@@ -100,7 +99,7 @@ namespace AdPoolService
 #endif
                 }
 
-                log.LogDebug(server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + " currentUSN=" + currentHighUSN);
+                log.LogDebug(server.ToString() + ". currentUSN=" + currentHighUSN);
 
                 if (String.IsNullOrEmpty(prevHighUSN))
                 {
@@ -112,7 +111,7 @@ namespace AdPoolService
                     return; // no changes since last update
 
                 if (prevHighUSN == "0")
-                    log.LogWarn("Load all users from " + server.Name + " ...");
+                    log.LogWarn("Load all users from [" + server.ToString() + "] ...");
 
                 LoadUsersByFilter(server, rootDSE, string.Format("(&(objectClass=user)(objectCategory=person)(uSNChanged>={0})(!(uSNChanged={0})))", prevHighUSN));
 
@@ -190,7 +189,7 @@ namespace AdPoolService
                     var cnt = results.Count;
                     if (results != null && cnt > 0)
                     {
-                        log.LogInfo("Reading " + cnt + " account(s) from " + server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
+                        log.LogInfo("Reading " + cnt + " account(s) from " + server.ToString() + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
                         foreach (SearchResult user in results)
                         {
 #if DEBUG
@@ -209,7 +208,7 @@ namespace AdPoolService
                             // simbols '{}' are special for Format. So replace them in DN.
                             if (cnt <= 20)
                                 log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
-                            UserProperties props = new Dictionary<string, string[]>(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
+                            UserProperties props = new UserProperties(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
 
                             //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
 
@@ -475,7 +474,7 @@ namespace AdPoolService
                             if (LoadUserByObjectSID(searchOU, objectSID, samAccountName) == null)
                                 serversFailed.Add(server.Name);
                     }
-                    catch(Exception ex)
+                    catch(Exception)
                     {
                         serversFailed.Add(server.Name);
                     }
@@ -503,13 +502,29 @@ namespace AdPoolService
         {
             string output = string.Empty;
             foreach (var dict in props)
-                output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length == 0 ? "NULL" : dict.Value[0]) + ";";
+            {
+                if (dict.Key.Equals("userAccountControl", StringComparison.OrdinalIgnoreCase))
+                {
+                    uint uaControl = 0;
+                    UInt32.TryParse(dict.Value[0], out uaControl);
+                    List<string> uaControlFlags = new List<string>();
+                    foreach(var enumUa in Enum.GetValues(typeof(Utils.UserAccountControl)))
+                        if((uaControl & Convert.ToUInt32(enumUa)) != 0) 
+                            uaControlFlags.Add(enumUa.ToString());
+                    output += Environment.NewLine + dict.Key + "=" + string.Join("|", uaControlFlags) + ";";
+                }
+                else
+                    output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length == 0 ? "NULL" : dict.Value[0]) + ";";
+            }
+            // AD didn't send me a null values. So force to print nulls
+            foreach(var missedProp in propNamesAll.Except(props.Keys))
+                output += Environment.NewLine + missedProp + "=NULL;";
             return output;
         }
 
         private static UserProperties GetUserProperties(DirectoryEntry user)
         {
-            var props = new Dictionary<string, string[]>(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
+            var props = new UserProperties(propNamesDestination.Count, StringComparer.OrdinalIgnoreCase);
             foreach (var p in propNamesDestination)
             {
                 var prop = user.Properties[p];
@@ -583,7 +598,7 @@ namespace AdPoolService
                         var cnt = results.Count;
                         if (results != null && cnt > 0)
                         {
-                            //log.LogInfo("Reading " + cnt + " account(s) from " + server.SourceDest + " AD '" + server.Name + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
+                            //log.LogInfo("Reading " + cnt + " account(s) from " + server.ToString() + ". Current USN='" + CurrentHighUSN + "'. InvocationID='" + GetInvocationID + "'");
                             foreach (SearchResult gr in results)
                             {
                                 var dn = (string)gr.Properties["distinguishedname"][0];

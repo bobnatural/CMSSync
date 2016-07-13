@@ -19,8 +19,19 @@ SDK dlls.
 /?		- help
 
 TODO: 
+If changed Check Card Policy or DestOU then do terminate-create? I can get list of CardPolicy by method findApplicationSets and check if it is changed. 
+Instead of ADOnly transaction type it is better add list of CcmAttributes in same level as HintAttributes. If one of CcmAttributes changed then submitCPR.
 
 ReleseNotes:
+Jul 13 2016
+17. AIMS_NO_SUCH_USER special EventID 12.
+16. Print Null-ed attributes when Hint not found. 
+15. Accountdisabled and Smartcardrequired allowed in transition rules.
+14. Filter OudnTomonitor is matched by contains.
+13. In HealthCheck print all unavailable AD(s) in one message 'the following health check failed ...'  with special EventID=120.
+12. In Polling don't print if AD is unavalable. Only if all AD(s) is unavalable?
+
+Jul 07 2016
 11. On startup, if all of Dest AD is down then don't start.
 10. Check that the account exists in all secondary destination AD. Only after the account exists in all others Dest AD then send in the CPR to CMS.
 9. Adhint SMARTCARD_REQUIRED (True / False)

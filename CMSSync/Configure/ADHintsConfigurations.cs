@@ -1,15 +1,15 @@
 ﻿using Cmssync.Extensions;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using UserProperties = System.Collections.Generic.IDictionary<string, string[]>;
 
 namespace Cmssync
 {
-    class ADHintsConfigurationSection : ConfigurationSection
+    internal class ADHintsConfigurationSection : ConfigurationSection
     {
 
         [ConfigurationProperty("ADHints")]
@@ -39,7 +39,7 @@ namespace Cmssync
                     if (!names.Contains(attr.Name))
                         names.Add(attr.Name);
             }
-            return names.ToArray();
+            return names.Where(a => !Utils.UserAccountControlFlags.Contains(a)).ToArray();
         }
 
         public static string[] GetTransitionAttributeNames()
@@ -72,16 +72,16 @@ namespace Cmssync
             {
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                     if (Utils.Equals(hintAttr.Name, "memberof"))
-                        foreach (HintAttributeValue v in hintAttr.HintAttributeValues)
+                        foreach (AttributeValue v in hintAttr.HintAttributeValues)
                             if (!groups.Contains(v.Value))
                                 groups.Add(v.Value);
                 foreach (TransitionAttribute tranAttr in hint.TransitionAttributes)
                     if (Utils.Equals(tranAttr.Name, "memberof"))
                     {
-                        foreach (TransitionAttributeValue v in tranAttr.TransitionAttributeValuesFrom)
+                        foreach (AttributeValue v in tranAttr.TransitionAttributeValuesFrom)
                             if (!groups.Contains(v.Value))
                                 groups.Add(v.Value);
-                        foreach (TransitionAttributeValue v in tranAttr.TransitionAttributeValuesTo)
+                        foreach (AttributeValue v in tranAttr.TransitionAttributeValuesTo)
                             if (!groups.Contains(v.Value))
                                 groups.Add(v.Value);
                     }
@@ -89,7 +89,7 @@ namespace Cmssync
             return groups;
         }
         
-        public static ADHintElement GetOUByAttributes(IDictionary<string, string[]> userPropsNew, IDictionary<string, string[]> userPropsOld, out string transResult)
+        public static ADHintElement GetOUByAttributes(UserProperties userPropsNew, UserProperties userPropsOld, out string transResult)
         {
             // ConfigurationManager.RefreshSection("ADHints");
             var hitsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
@@ -100,7 +100,9 @@ namespace Cmssync
                 bool hintMatched = true;
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                 {
-                    if (!MatchAttributeValues(userPropsNew, hintAttr))
+                    string[] userAttrValue = userPropsNew.GetPropValue(hintAttr.Name);
+                    if (userAttrValue == null
+                        || string.IsNullOrEmpty(GetFirstMatchedAttribute(userAttrValue, hintAttr.Name, hintAttr.HintAttributeValues)))
                     {
                         hintMatched = false; // if any hintvalue is not matched 
                         break; // Then Hint is not matched
@@ -122,33 +124,39 @@ namespace Cmssync
         }
 
         /// <summary>
-        /// try if userAttributeValues equal at least one of HintAttribute Value
+        /// if userAttributeValues equal at least one of HintAttribute Value
         /// </summary>
         /// <param name="userPropsNew"></param>
         /// <param name="hintAttr"></param>
         /// <returns></returns>
-        private static bool MatchAttributeValues(UserProperties userPropsNew, HintAttribute hintAttr)
+        internal static string GetFirstMatchedAttribute(string[] userAttrValue, string attributeName, IEnumerable configAttrValues)
         {
-            string[] userAttrValue;
-            if (hintAttr.Name.Trim().Equals("ACCOUNTDISABLE", StringComparison.OrdinalIgnoreCase) || hintAttr.Name.Trim().Equals("SMARTCARD_REQUIRED", StringComparison.OrdinalIgnoreCase))
+            if (Utils.UserAccountControlFlags.Contains(attributeName.Trim()))
             {
                 Utils.UserAccountControl uaEnum; // flag
-                UInt32 userAccountControl;
-                if (Enum.TryParse(hintAttr.Name.Trim(), out uaEnum) && userPropsNew.TryGetValue("userAccountControl", out userAttrValue) && userAttrValue != null && UInt32.TryParse(userAttrValue[0], out userAccountControl))
-                    foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
-                    {
-                        var hintVal = hintAttrVal.Value.Trim();
-                        if (((userAccountControl & (UInt32)uaEnum) != 0) == Convert.ToBoolean(hintVal) || hintVal == "*")
-                            return true;
-                    }
-            }
-            else if (userPropsNew.TryGetValue(hintAttr.Name.Trim(), out userAttrValue))
-                foreach (HintAttributeValue hintAttrVal in hintAttr.HintAttributeValues)
+                UInt32 userAccountControl = 0;
+                if (userAttrValue != null)
+                    UInt32.TryParse(userAttrValue[0], out userAccountControl);
+                if (Enum.TryParse(attributeName.Trim(), out uaEnum)) // 
                 {
-                    if (userAttrValue != null && Utils.MatchValueInArray(hintAttrVal.Value.Trim(), userAttrValue))
-                        return true; // at least one value is equal
+                    bool userValue = (userAccountControl & (uint)uaEnum) != 0; // if userValue has given flag
+                    foreach (AttributeValue attrVal in configAttrValues)
+                    {
+                        var hintVal = attrVal.Value.Trim();
+                        bool bHintVal = false;
+                        Boolean.TryParse(hintVal, out bHintVal); 
+                        if (hintVal == "*" || userValue == bHintVal)
+                            return userValue.ToString(); // +"(" + hintVal + ")";
+                    }
                 }
-            return false;
+            }
+            else 
+                foreach (AttributeValue attrVal in configAttrValues)
+                {
+                    if (userAttrValue != null && Utils.MatchValueInArray(attrVal.Value.Trim(), userAttrValue))
+                        return attrVal.Value.Trim(); // at least one value is equal
+                }
+            return string.Empty;
         }        
     }
 
@@ -168,7 +176,7 @@ namespace Cmssync
         }
     }
 
-    public class ADHintElement : ConfigurationElement
+    class ADHintElement : ConfigurationElement
     {
         [ConfigurationProperty("Num", IsRequired = true)]
         public string Num
@@ -259,24 +267,23 @@ namespace Cmssync
             foreach (TransitionAttribute hintAttr in TransitionAttributes)
             {
                 string matchedAttrValueFrom, matchedAttrValueTo;
-                string[] userValueFrom, userValueTo;
-                userAttrFrom.TryGetValue(hintAttr.Name.Trim(), out userValueFrom);
-                userAttrTo.TryGetValue(hintAttr.Name.Trim(), out userValueTo);
+                var userValueFrom = userAttrFrom.GetPropValue(hintAttr.Name);
+                var userValueTo = userAttrTo.GetPropValue(hintAttr.Name);
                 
                 var anyFrom = hintAttr.TransitionAttributeValuesFrom.AnyValue ?? false;
                 var anyTo = hintAttr.TransitionAttributeValuesTo.AnyValue ?? false;
 
-                if (anyFrom && userValueFrom != null && !Utils.CheckEquals(userValueFrom, userValueTo))
-                    matchedAttrValueFrom = userValueFrom[0] + "*"; // if AnyValueAttribute set and value has changed
+                if (anyFrom && !Utils.CheckEquals(userValueFrom, userValueTo))
+                    matchedAttrValueFrom = (userValueFrom == null || userValueFrom.Length == 0 || string.IsNullOrEmpty(userValueFrom[0])? "NULL" : userValueFrom[0]) + "(*)"; // if AnyValueAttribute set and value has changed
                 else
-                    matchedAttrValueFrom = TryMatchAttributeValues(userValueFrom, hintAttr.TransitionAttributeValuesFrom);
+                    matchedAttrValueFrom = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueFrom, hintAttr.Name, hintAttr.TransitionAttributeValuesFrom);
                 if (string.IsNullOrEmpty(matchedAttrValueFrom))
                     return null; // values not found. No transition
 
-                if (anyTo && userValueTo != null && !Utils.CheckEquals(userValueFrom, userValueTo))
-                    matchedAttrValueTo = userValueTo[0] + "*"; // if AnyValueAttribute set and value has changed
+                if (anyTo && !Utils.CheckEquals(userValueFrom, userValueTo))
+                    matchedAttrValueTo = (userValueTo == null || userValueTo.Length == 0 || string.IsNullOrEmpty(userValueTo[0]) ? "NULL" : userValueTo[0]) + "(*)"; // if AnyValueAttribute set and value has changed
                 else
-                    matchedAttrValueTo = TryMatchAttributeValues(userValueTo, hintAttr.TransitionAttributeValuesTo);
+                    matchedAttrValueTo = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueTo, hintAttr.Name, hintAttr.TransitionAttributeValuesTo);
                 
                 if (string.IsNullOrEmpty(matchedAttrValueTo))
                     return null; // values not found. No transition
@@ -286,15 +293,15 @@ namespace Cmssync
 
             return matchMessage;
         }
-             
 
-        private string TryMatchAttributeValues(string[] userValue, TransitionAttributeValuesCollection transitionAttributeValuesCollection)
-        {
-            foreach (TransitionAttributeValue hintAttrVal in transitionAttributeValuesCollection)
-                if (userValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
-                    return hintAttrVal.Value;
-            return null;
-        }
+
+        //private string GetFirstMatchedAttribute(string[] userValue, TransitionAttributeValuesCollection transitionAttributeValuesCollection)
+        //{
+        //    foreach (AttributeValue hintAttrVal in transitionAttributeValuesCollection)
+        //        if (userValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
+        //            return hintAttrVal.Value;
+        //    return null;
+        //}
 
         public IList<string> QualityCheck(UserProperties userAttr)
         {
@@ -307,9 +314,9 @@ namespace Cmssync
             {
                 bool found = false;
 
-                string[] userValue = null;
-                if (userAttr.TryGetValue(checkAttr.Name, out userValue))
-                    foreach(CheckAttributeValue chkVal in checkAttr.CheckAttributeValues)
+                string[] userValue = userAttr.GetPropValue(checkAttr.Name);
+                if (userAttr != null)
+                    foreach (AttributeValue chkVal in checkAttr.CheckAttributeValues)
                     {
                         if (found) break;
                         found = Utils.MatchValueInArray(chkVal.Value, userValue);
@@ -361,26 +368,26 @@ namespace Cmssync
     /// <summary>
     /// HINT ATTRIBUTE VALUES
     /// </summary>
-    [ConfigurationCollection(typeof(HintAttributeValue))] // , AddItemName = "HintAttributeValue"
+    [ConfigurationCollection(typeof(AttributeValue))] // , AddItemName = "HintAttributeValue"
     public class HintAttributeValuesCollection : ConfigurationElementCollection
     {
 
         protected override ConfigurationElement CreateNewElement()
         {
-            return new HintAttributeValue();
+            return new AttributeValue();
         }
 
         protected override object GetElementKey(ConfigurationElement element)
         {
-            return ((HintAttributeValue)element).Value;
+            return ((AttributeValue)element).Value;
         }
-        public HintAttributeValue this[int idx]
+        public AttributeValue this[int idx]
         {
-            get { return (HintAttributeValue)BaseGet(idx); }
+            get { return (AttributeValue)BaseGet(idx); }
         }
     }
 
-    public class HintAttributeValue : ConfigurationElement
+    public class AttributeValue : ConfigurationElement
     {
         [ConfigurationProperty("Value", IsRequired = true, IsKey = true)]
         public string Value
@@ -431,7 +438,7 @@ namespace Cmssync
     /// <summary>
     /// TRANSITION ATTRIBUTE VALUES
     /// </summary>
-    [ConfigurationCollection(typeof(TransitionAttributeValue))] // , AddItemName = "HintAttributeValue"
+    [ConfigurationCollection(typeof(AttributeValue))] // , AddItemName = "HintAttributeValue"
     public class TransitionAttributeValuesCollection : ConfigurationElementCollection
     {
         [ConfigurationProperty("AnyValue", IsRequired = false, DefaultValue = false)]
@@ -443,28 +450,28 @@ namespace Cmssync
                
         protected override ConfigurationElement CreateNewElement()
         {
-            return new TransitionAttributeValue();
+            return new AttributeValue();
         }
 
         protected override object GetElementKey(ConfigurationElement element)
         {
-            return ((TransitionAttributeValue)element).Value;
+            return ((AttributeValue)element).Value;
         }
-        public TransitionAttributeValue this[int idx]
+        public AttributeValue this[int idx]
         {
-            get { return (TransitionAttributeValue)BaseGet(idx); }
+            get { return (AttributeValue)BaseGet(idx); }
         }
     }
 
-    public class TransitionAttributeValue : ConfigurationElement
-    {
-        [ConfigurationProperty("Value", IsRequired = false, IsKey = true)]
-        public string Value
-        {
-            get { return this["Value"] as string; }
-            set { this["Value"] = value; }
-        }       
-    }
+    //public class TransitionAttributeValue : ConfigurationElement
+    //{
+    //    [ConfigurationProperty("Value", IsRequired = false, IsKey = true)]
+    //    public string Value
+    //    {
+    //        get { return this["Value"] as string; }
+    //        set { this["Value"] = value; }
+    //    }       
+    //}
 
     public class AnyValue : ConfigurationElement
     {        
@@ -518,35 +525,35 @@ namespace Cmssync
     /// <summary>
     /// CHECK ATTRIBUTE VALUES
     /// </summary>
-    [ConfigurationCollection(typeof(CheckAttributeValue))]
+    [ConfigurationCollection(typeof(AttributeValue))]
     public class CheckAttributeValuesCollection : ConfigurationElementCollection
     {
 
         protected override ConfigurationElement CreateNewElement()
         {
-            return new CheckAttributeValue();
+            return new AttributeValue();
         }
 
         protected override object GetElementKey(ConfigurationElement element)
         {
-            return ((CheckAttributeValue)element).Value;
+            return ((AttributeValue)element).Value;
         }
-        public CheckAttributeValue this[int idx]
+        public AttributeValue this[int idx]
         {
-            get { return (CheckAttributeValue)BaseGet(idx); }
+            get { return (AttributeValue)BaseGet(idx); }
         }
     }
 
-    /// <summary>
-    /// QUALITYCHECK ATTRIBUTEs
-    /// </summary>
-    public class CheckAttributeValue : ConfigurationElement
-    {
-        [ConfigurationProperty("Value", IsRequired = true, IsKey = true)]
-        public string Value
-        {
-            get { return this["Value"] as string; }
-            set { this["Value"] = value; }
-        }
-    }
+    ///// <summary>
+    ///// QUALITYCHECK ATTRIBUTEs
+    ///// </summary>
+    //public class CheckAttributeValue : ConfigurationElement
+    //{
+    //    [ConfigurationProperty("Value", IsRequired = true, IsKey = true)]
+    //    public string Value
+    //    {
+    //        get { return this["Value"] as string; }
+    //        set { this["Value"] = value; }
+    //    }
+    //}
 }

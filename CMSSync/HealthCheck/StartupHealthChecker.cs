@@ -242,14 +242,14 @@ namespace AdPoolService.HealthCheck {
             foreach (var server in configuration.DestADServers)
             {
                 bool hasSuccessHintOU = false;
-                log.LogDebug("check ADHints in Destination AD server " + server.Name + " ...");
+                log.LogDebug("check ADHints in " + server.ToString() + " ...");
                 var msg = CheckOUExists(server, ADHintsConfigurationSection.GetAllOUs(), out hasSuccessHintOU);
+                errors += (errors.Length > 0 ? Environment.NewLine : "") + msg; // some errors may be even if hasSuccessHintOU
                 if (hasSuccessHintOU)
                 {
                     anySuccess = true;
                     break; // one working server is enough
                 }
-                errors += msg;
             }
             if (!anySuccess)
                 return CheckResult.FailWith("No valid DestOUs found in ADHintSettings." + Environment.NewLine + errors);
@@ -257,21 +257,21 @@ namespace AdPoolService.HealthCheck {
             anySuccess = false;
             foreach (var server in configuration.SourceADServers)
             {
-                log.LogDebug("check OUsDNToMonitor in Source AD server " + server.Name + " ...");
+                log.LogDebug("check OUsDNToMonitor in " + server.ToString() + " ...");
                 bool hasSuccessMonitor = configuration.OUsDNToMonitor.Count == 0;
                 var msg = CheckOUExists(server, configuration.OUsDNToMonitor.ToArray(), out hasSuccessMonitor);
+                errors += (errors.Length > 0 ? Environment.NewLine : "") + msg; // some errors may be even if hasSuccessMonitor
                 if (hasSuccessMonitor)
                 {
                     anySuccess = true;
                     break; // one working server is enough
                 }
-                errors += msg;
             }
             if (!anySuccess)
                 return CheckResult.FailWith("No valid OUs found in OUsDNToMonitorSettings." + Environment.NewLine + errors);
 
             if (!string.IsNullOrEmpty(errors))
-                return CheckResult.WarningWith(errors);
+                return CheckResult.WarningWith("Errors occured while checking OUsDNToMonitorSettings:" + Environment.NewLine + errors);
 
             return CheckResult.Success;
         }
@@ -289,7 +289,7 @@ namespace AdPoolService.HealthCheck {
                     if (DateTime.Now.Subtract(starTime).TotalSeconds > 60)
                     {
                         success = false;
-                        return "Unable to connect to AD server [" + server + "]"; 
+                        return "Unable to connect to [" + server.ToString() + "]"; 
                     }
                     try
                     {
@@ -303,9 +303,10 @@ namespace AdPoolService.HealthCheck {
                     }
                     catch (Exception e)
                     {
-                        var msg = "Fail to check OU [" + OU + "] in AD " + server.Name; // ""specified in config";
+                        var msg = "Fail to check OU [" + OU + "] in " + server.ToString(); // ""specified in config";
                         //                    if (e.HResult == -2147016661 || e.HResult == -2147016656) //0x8007202b. A referral was returned from the server
-                        errors += msg + ". " + e.Message;
+                        if (trials == 0)
+                            errors += msg + ". " + e.Message;
 
                         if (e.HResult == -2147016656  // object not found
                             || e.HResult == -2147023570 // user name or passw incorrect

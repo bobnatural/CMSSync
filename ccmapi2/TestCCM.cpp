@@ -407,7 +407,10 @@ void TestCCM::logError()
 {
 	std::string msg = dbgout.str();
 	std::replace(msg.begin(), msg.end(), '%', '_'); // If the string that you log contains %n, where n is an integer value (for example, %1), the event viewer treats it as an insertion string.
-	logger.Error(msg.c_str());
+	DWORD eventID = 14;
+	if (msg.find("AIMS_NO_SUCH_USER") != string::npos)
+		eventID = 12;
+	logger.Error(msg.c_str(), eventID);
 }
 
 
