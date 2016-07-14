@@ -75,7 +75,7 @@ int TestCCM::Process(
 			if (0 == strcmp(cmd, _T("CREATE-CPR")))
 				createCPR(TString(user), TString(cprContent), TString(policy), TString(reason));
 			else if (0 == strcmp(cmd, _T("TERMINATE-ALL")))
-				TerminateAll(user, false);
+				TerminateAll(user);
 		}
 		catch (LocalizedException* e)
 		{
@@ -477,7 +477,6 @@ UserId TestCCM::getUserId(TString user)
 int TestCCM::createCPR(const TString& user, const TString& cprData, const TString& policy, const TString& reason)
 {
 	UserId userId = getUserId(user);
-	//TString cprData = readFile(cprFile);
 
 	EnrollmentDataVector enrollmentVector;
 	EnrollmentDataValue enrollDataDn;
@@ -487,14 +486,23 @@ int TestCCM::createCPR(const TString& user, const TString& cprData, const TStrin
 	enrollDataDn.setEncoding("None");
 	enrollmentVector.push_back(enrollDataDn);
 
-	logger.SuccessFormat("addEnrollmentData cprFileLength=%d bytes. userMgrSessionID=%s. SessionIsOpen=%s ... ", cprData.length(), userSessID.c_str(), userMgr->isSessionOpen() ? "true" : "false");
+	dbgout << "addEnrollmentData cprFileLength=" << cprData.length() << " bytes. userMgrSessionID=" << userSessID.c_str()<<" ... ";
+	//logger.SuccessFormat("addEnrollmentData cprFileLength=%d bytes. userMgrSessionID=%s. SessionIsOpen=%s ... ", cprData.length(), userSessID.c_str(), userMgr->isSessionOpen() ? "true" : "false");
 	userMgr->addEnrollmentData(&userId, &enrollmentVector);
 
 	if (policy.length() > 0)
 	{
-		logger.SuccessFormat("getBoundWalletFromUser Policy=%s. walletMgrSessionID=%s. SessionIsOpen=%s. ...", policy.c_str(), walletSessID.c_str(), walletMgr->isSessionOpen() ? "true" : "false");
+		dbgout << "getBoundWalletFromUser Policy=" << policy.c_str();
+		//logger.SuccessFormat("getBoundWalletFromUser Policy=%s. walletMgrSessionID=%s. SessionIsOpen=%s. ...", policy.c_str(), walletSessID.c_str(), walletMgr->isSessionOpen() ? "true" : "false");
 
-		WalletId*			walletId = walletMgr->getBoundWalletFromUser(&userId);
+		WalletId*	walletId = walletMgr->getBoundWalletFromUser(&userId);
+
+		auto devStatus = GetLifecycleStatus(walletId);
+		if (devStatus.length() > 0)
+		{
+			logger.WarnFormat("Skip submitActions in CCM. Device: %s", devStatus.c_str());
+			return 1;
+		}
 
 		cancelActions(walletId); // clear all pending actions ...
 
@@ -516,7 +524,7 @@ int TestCCM::createCPR(const TString& user, const TString& cprData, const TStrin
 		ActionVector actions;
 		actions.push_back(action);
 
-		logger.SuccessFormat("submitActions SessionIsOpen=%s. ...", walletMgr->isSessionOpen() ? "true" : "false");
+		//logger.SuccessFormat("submitActions SessionIsOpen=%s. ...", walletMgr->isSessionOpen() ? "true" : "false");
 		// Submit Production Action
 		TStringVector *actionIds = walletMgr->submitActions(walletId, &actions, _T(""));
 
@@ -573,7 +581,7 @@ WalletId TestCCM::getWalletId(UserId* userId)
 	return walletId;
 }
 
-int TestCCM::TerminateAll(const TString &user, bool onlyActive)
+int TestCCM::TerminateAll(const TString &user)
 {
 	UserId userId = getUserId(user);
 	WalletId walletId = getWalletId(&userId);
@@ -591,8 +599,6 @@ int TestCCM::TerminateAll(const TString &user, bool onlyActive)
 
 		try
 		{
-			//TString status = smoMgr->getLifecycleStatus(smId);
-
 			// Unbind/Terminate the card
 			walletMgr->unbindSecurityModule(&walletId, smId);
 			//tcout << _T("Unbound Security Module: ") << smId->getType().c_str() << _T(", ") << smId->getId().c_str() << _T(" from Wallet:") << walletId->getId().c_str() << _T(".") << endl;
@@ -610,33 +616,28 @@ int TestCCM::TerminateAll(const TString &user, bool onlyActive)
 	return 0;
 }
 
-int TestCCM::GetLifecycleStatus(const TString &user)
+TString TestCCM::GetLifecycleStatus(WalletId* walletId)
 {
-	UserId userId = getUserId(user);
-	WalletId walletId = getWalletId(&userId);
-
 	// Obtain the security module ids
-	SecurityModuleIdVector* smIds = smoMgr->getBoundSMFromWallet(&walletId);
+	SecurityModuleIdVector* smIds = smoMgr->getBoundSMFromWallet(walletId);
 
 	// Trigger process for all security modules
 	for (int i = 0; smIds != NULL && i < (int)smIds->size(); i++)
 	{
-		//unbind(&smIds->at(i), walletId);
 		SecurityModuleId* const smId = &(smIds->at(i));
-
 		try
 		{
 			TString status = smoMgr->getLifecycleStatus(smId);
+			if (status.trim().length() > 0)
+				return smId->getId() + _T(" Status: ") + status;
 		}
 		catch (SecurityModuleNotBoundException* smnbe)
 		{
-			//tcout << _T("Warning: ") << smnbe->getMessage().c_str() << endl;
-			logger.ErrorFormat("Error unbinding device %s: SecurityModuleNotBoundException. %s ", smId->getId().c_str(), smnbe->getMessage().c_str());
+			logger.ErrorFormat("Error getLifecycleStatus %s: SecurityModuleNotBoundException. %s ", smId->getId().c_str(), smnbe->getMessage().c_str());
 			delete smnbe;
 		}
 	}
-
-	// cleanup
-	delete smIds;
-	return 0;
+	
+	delete smIds; // cleanup
+	return "";
 }

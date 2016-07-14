@@ -24,6 +24,7 @@ Instead of ADOnly transaction type it is better add list of CcmAttributes in sam
 
 ReleseNotes:
 Jul 13 2016
+18. Call CreateCPR only if GetLifecycleStatus returns empty string. I.e. no card is issued.
 17. AIMS_NO_SUCH_USER special EventID 12.
 16. Print Null-ed attributes when Hint not found. 
 15. Accountdisabled and Smartcardrequired allowed in transition rules.

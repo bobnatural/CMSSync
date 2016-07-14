@@ -43,9 +43,9 @@ private:
 	
 	// commands:
 	int createCPR(const TString& user, const TString& cprFile, const TString& policy, const TString& reason);
-	int TerminateAll(const TString &user, bool onlyActive);
+	int TerminateAll(const TString &user);
 	void cancelActions(WalletId* pWalletId);
-	int GetLifecycleStatus(const TString &user);
+	TString GetLifecycleStatus(WalletId* pWalletId);
 
 	UserId getUserId(TString user);
 	WalletId getWalletId(UserId* userId);
