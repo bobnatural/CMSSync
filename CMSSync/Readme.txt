@@ -23,14 +23,14 @@ If changed Check Card Policy or DestOU then do terminate-create? I can get list 
 Instead of ADOnly transaction type it is better add list of CcmAttributes in same level as HintAttributes. If one of CcmAttributes changed then submitCPR.
 
 ReleseNotes:
-Jul 13 2016
+Jul 14 2016
 18. Call CreateCPR only if GetLifecycleStatus returns empty string. I.e. no card is issued.
 17. AIMS_NO_SUCH_USER special EventID 12.
-16. Print Null-ed attributes when Hint not found. 
+16. Print Null-ed attributes when Hint not found.  Printing out each memberOf group that appears in the config and a Yes or No? 
 15. Accountdisabled and Smartcardrequired allowed in transition rules.
-14. Filter OudnTomonitor is matched by contains.
+14. Filter OudnTomonitor is matched by "exact" logic.
 13. In HealthCheck print all unavailable AD(s) in one message 'the following health check failed ...'  with special EventID=120.
-12. In Polling don't print if AD is unavalable. Only if all AD(s) is unavalable?
+12. In Polling don't print if AD is unavalable. Only if all AD(s) is unavalable.
 
 Jul 07 2016
 11. On startup, if all of Dest AD is down then don't start.

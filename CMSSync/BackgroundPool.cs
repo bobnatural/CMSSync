@@ -34,6 +34,11 @@ namespace AdPoolService
         private static ISet<string> oUsDNToMonitor;
 
         /// <summary>
+        /// lastHighUSNs by AD instance
+        /// </summary>
+        private static IDictionary<string, string> lastHighUSNs = new Dictionary<string, string>(); //LoadCurrentHighUSN();
+
+        /// <summary>
         /// users which failes during initialization. We must try them agin till success.
         /// </summary>
         private static Dictionary<string, UserProperties> initializationFails = new Dictionary<string, UserProperties>();
@@ -74,17 +79,15 @@ namespace AdPoolService
 
         private static void BackgroundPoll()
         {
-            IDictionary<string, string> lastHighUSNs = new Dictionary<string, string>(); //LoadCurrentHighUSN();
-
             bool logVerbose = config.LogVerbose;
             //var accountToMonitor = config.SamAccountsToMonitor;
             //if (accountToMonitor.Count > 0)
             //    log.LogDebug("Monitoring only " + accountToMonitor.Count + " accounts: " + string.Join(";", accountToMonitor));
 
             if (oUsToMonitor.Count > 0)
-                log.LogDebug("Monitoring only " + oUsToMonitor.Count + " OUs: " + string.Join(";", oUsToMonitor));
+                log.LogDebug("Monitoring only " + oUsToMonitor.Count + " OU(s): " + string.Join(";", oUsToMonitor));
             if (oUsDNToMonitor.Count > 0)
-                log.LogDebug("Monitoring only " + oUsDNToMonitor.Count + " OU's DNs: " + string.Join(";", oUsDNToMonitor));
+                log.LogDebug("Monitoring only " + oUsDNToMonitor.Count + " OU(s) DNs: " + string.Join(";", oUsDNToMonitor));
 
             // get attributes for replicate:
             var allAtributes = ADHintsConfigurationSection.GetAllAttributeNames();
@@ -113,7 +116,7 @@ namespace AdPoolService
                     else
                         cprContent = SettingsConfiguration.CPRFileContent;
 
-                    PollAD ad = GetAvailableAD(config.SourceADServers, lastHighUSNs);
+                    PollAD ad = GetAvailableAD(config.SourceADServers, lastHighUSNs, false);
                     bool success = false;
 
                     if (ad == null)
@@ -198,8 +201,10 @@ namespace AdPoolService
             CacheAllGroups();
 
             log.LogInfo("Initialize accounts ...");
-            PollAD adSource = GetAvailableAD(config.SourceADServers, null);
-            PollAD adDest = GetAvailableAD(config.DestADServers, null);
+            PollAD adSource = GetAvailableAD(config.SourceADServers, lastHighUSNs, true);
+            PollAD adDest = GetAvailableAD(config.DestADServers, lastHighUSNs, true);
+
+            lastHighUSNs[adSource.GetInvocationID] = adSource.CurrentHighUSN;
 
             try
             {
@@ -290,7 +295,7 @@ namespace AdPoolService
             {
                 try
                 {
-                    PollAD.GetGroupMembers(server, ADHintsConfigurationSection.GetAllGroups());
+                    PollAD.GetGroupMembers(server, ADHintsConfigurationSection.GetAllGroupsFromConfig());
                     return; // first available source AD
                 }
                 catch (Exception ex)
@@ -301,14 +306,14 @@ namespace AdPoolService
             throw new Exception("No Source AD Servers available");
         }
 
-        private static PollAD GetAvailableAD(ADServer[] servers, IDictionary<string, string> successHighUSNs)
+        private static PollAD GetAvailableAD(ADServer[] servers, IDictionary<string, string> successHighUSNs, bool loadAll)
         {
             foreach (var server in servers)
             {
                 try
                 {
                     // first available AD
-                    return new PollAD(server, successHighUSNs);
+                    return new PollAD(server, successHighUSNs, loadAll);
                 }
                 catch (Exception ex)
                 {
@@ -348,10 +353,11 @@ namespace AdPoolService
                 }
 
                 // filter by DN of OU
-                Func<string, bool> accountInOUDN = (dn) =>
+                Func<string, bool> accountInOUDN = (userDn) =>
                 {
+                    var userParentOU = userDn.Substring(userDn.IndexOf(',') + 1);
                     foreach (var ouDN in OUsDNToMonitor)
-                        if (dn.IndexOf(ouDN.Trim(), 0, StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (userParentOU.Equals(ouDN, StringComparison.OrdinalIgnoreCase))
                             return true;
                     return false;
                 };
@@ -380,12 +386,13 @@ namespace AdPoolService
                 {
                     try
                     {
-                        if (PollAD.AddUser(server, props, cprContent, servers.Where(s => s.Name != server.Name).ToArray()) == 0)
+                        var pollRes = PollAD.AddUser(server, props, cprContent, servers.Where(s => s.Name != server.Name).ToArray());
+                        if (pollRes == 0)
                         {
                             updatedCnt++; // success
                             initializationFails.Remove(objectSID);
                         }
-                        else if (initializeMode)
+                        else if (pollRes != 15 && initializeMode) // 15 if qualityCheck fails
                             initializationFails.Add(objectSID, props);
                         break; // success
                     }
@@ -404,6 +411,7 @@ namespace AdPoolService
                 log.LogError("Updated " + updatedCnt + " user(s) of " + usersProps.Count + ". See previouse log records for errors.");
                 
             return updatedCnt; // == usersProps.Count;
+            
             throw new Exception("Unable to connect to any Destination servers");
         }
 

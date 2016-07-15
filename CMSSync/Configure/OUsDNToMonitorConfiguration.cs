@@ -26,7 +26,7 @@ namespace Cmssync.Configure
             var settings = (OUsDNToMonitorConfigurationSection)ConfigurationManager.GetSection("OUsDNToMonitorSettings");
             ISet<string> names = new HashSet<string>();
             foreach (OUsDNElement hint in settings.OUsDNs)
-                names.Add(hint.Value);
+                names.Add(hint.Value.Trim());
             return names;
         }
     }

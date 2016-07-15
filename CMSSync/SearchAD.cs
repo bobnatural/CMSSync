@@ -24,12 +24,22 @@ namespace AdPoolService
 
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
         static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl"};
+        
         // ignore to update Destination:
-        public static readonly ISet<string> propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf", "ACCOUNTDISABLE", "SMARTCARD_REQUIRED" };
+        private static readonly ISet<string> _propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
+        public static ISet<string> propIgnoreDest
+        {
+            get {
+                var res = new HashSet<string>(_propIgnoreDest);
+                res.UnionWith(Utils.UserAccountControlFlags);
+                return res;
+            }
+        }
+
         public static List<string> propNamesAll; // hard + hint + transition props for SourceAD
         public static List<string> propNamesDestination; // hard + transition props for DestAD
 
-        private static IDictionary<string, ISet<string>> groupCache; // cache of groups
+        private static IDictionary<string, ISet<string>> groupCache; // cache of groups. [Group distinguishedname] -> [Users distinguishedname]
 
         static public void AddSourcePropNames(string[] addProps)
         {
@@ -51,7 +61,8 @@ namespace AdPoolService
             set { log = value; }
         }
 
-        public PollAD(ADServer server, IDictionary<string, string> prevHighUSNs, bool supressLog = false)
+
+        public PollAD(ADServer server, IDictionary<string, string> prevHighUSNs, bool loadAll)
         {
             usersProperties = new List<UserProperties>();
             currentHighUSN = null;
@@ -85,10 +96,10 @@ namespace AdPoolService
                     //Console.WriteLine(" InvocationID = " + workInvocationID);
                     // Compare it to the DC name from the previous USN sync operation.
                     // Each invocationID has each own highestCommittedUSN !
-                    if (prevHighUSNs == null)
+                    if (loadAll || prevHighUSNs == null)
                         prevHighUSN = "0"; // initialize mode. Load All accounts.
                     else if (!prevHighUSNs.TryGetValue(workInvocationID, out prevHighUSN))
-                        return;
+                        prevHighUSN = null; // AD server is polled first time. 
 #if DEBUG
                     //foreach (var prop in dcService.SchemaEntry.Properties)
                     //{
@@ -103,7 +114,7 @@ namespace AdPoolService
 
                 if (String.IsNullOrEmpty(prevHighUSN))
                 {
-                    log.LogWarn("FIRST launch. Skip polling. Set currentUSN=" + currentHighUSN);
+                    log.LogDebug("FIRST launch. Skip polling. Set currentUSN=" + currentHighUSN);
                     return; // first launch. Just set currentHighUSN and return.
                 }
 
@@ -353,6 +364,8 @@ namespace AdPoolService
                 if (adHint == null)
                 {
                     var messageHint = "ADHint is not found for user '" + samAccountName + "'. Attributes:" + PrintAttributes(newProps);
+                    messageHint += ADHintsConfigurationSection.PrintMemberOfAttributes(newProps.GetPropValue("memberOf"));
+
                     if (Settings.Default.DataMismatchLogging)
                         log.LogWarn(messageHint);
                     else
@@ -362,7 +375,10 @@ namespace AdPoolService
 
                 var qualityCheck = adHint.QualityCheck(newProps);
                 if (qualityCheck.Count > 0)
-                    throw new Exception("QualityCheck validation fails with:" + Environment.NewLine + string.Join(Environment.NewLine, qualityCheck.ToArray()));
+                {
+                    log.LogError("QualityCheck validation fails for user '" + samAccountName + "' with attributes:" + Environment.NewLine + string.Join(Environment.NewLine, qualityCheck.ToArray()));
+                    return 15;
+                }
 
                 // Process ...
                 if (adHint.Type == ADHintElement.AdHintType.Terminate)
@@ -372,6 +388,9 @@ namespace AdPoolService
 
                 using (var destOU = new DirectoryEntry(destPath, server.ServerUserName, server.ServerPassword, server.authTypes))
                 {
+                    string changedImportantProps = transResult;
+                    string changedAllProps = "";
+
                     if (isNewUser) // new user
                     {
                         log.LogInfo(" '" + samAccountName + "' add into OU '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
@@ -384,44 +403,50 @@ namespace AdPoolService
                         {
                             log.LogInfo(" '" + samAccountName + "' move from '" + oldUser.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
                             oldUser.MoveTo(destOU);
+                            changedAllProps += "OU;";
                         }
                         else
                             log.LogInfo(" '" + samAccountName + "' update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
                     }
 
-                    string changedImportantProps = transResult;
+                    changedAllProps += SetPropertiesToUser(oldUser, newProps);
+                    changedAllProps += CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
 
                     changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[] { samAccountName }); // AD key
                     if (!isNewUser && changedImportantProps.Length > 0)
                     {
-                        log.LogInfo("Changed account attributes: " + changedImportantProps + "Terminating '" + oldSamAccountName + "' in CCM ...");
+                        log.LogInfo("Changed account attributes: " + changedImportantProps + " Terminating '" + oldSamAccountName + "' in CCM ...");
                         CCMApi.Terminate(oldSamAccountName);
                     }
+                    else if (!isNewUser)
+                        log.LogDebug("Changed account attributes: " + changedAllProps);
 
-                    SetPropertiesToUser(oldUser, newProps);
-
-                    CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
                     oldUser.Properties["userAccountControl"].Value = Utils.UserAccountControl.NORMAL_ACCOUNT | Utils.UserAccountControl.ACCOUNTDISABLE | Utils.UserAccountControl.PWD_NOTREQD;
+
+                    if (!isNewUser && string.IsNullOrEmpty(changedAllProps) && string.IsNullOrEmpty(changedImportantProps))
+                    {
+                        log.LogDebug("No attributes changed. Skip updating.");
+                        return 0; // skip to commit
+                    }
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
+
+                    WaitDestinationADReplication(samAccountName, newProps["objectSID"][0], serversToWait);
 
                     // Dest AD is commited.
                     // Process CCM ....
 
-                    bool isChangedImportantProps = changedImportantProps.Length > 0 || isNewUser;
-
-                    if (!isChangedImportantProps)
-                    {
-                        log.LogInfo("Skip updating CCM");
-                        return 0;
-                    }
-                    else if (Settings.Default.CCMHost.Trim().Length == 0)
+                    //bool isChangedImportantProps = changedImportantProps.Length > 0 || isNewUser;
+                    //if (!isChangedImportantProps)
+                    //{
+                    //    log.LogInfo("Skip updating CCM");
+                    //    return 0;
+                    //}
+                    if (Settings.Default.CCMHost.Trim().Length == 0)
                     {
                         log.LogWarn("CCMHost is not set. Skip CCM processing");
                         return 0;
                     }
-
-                    WaitDestinationADReplication(samAccountName, newProps["objectSID"][0], serversToWait);
 
                     int ccmResult;
                     try
@@ -463,6 +488,8 @@ namespace AdPoolService
         /// <param name="serversToWait"></param>
         private static void WaitDestinationADReplication(string samAccountName, string objectSID, ADServer[] serversToWait)
         {
+            if (serversToWait.Length == 0)
+                return;
             while (true)
             {
                 List<string> serversFailed = new List<string>();
@@ -474,28 +501,34 @@ namespace AdPoolService
                             if (LoadUserByObjectSID(searchOU, objectSID, samAccountName) == null)
                                 serversFailed.Add(server.Name);
                     }
-                    catch(Exception)
+                    catch(Exception ex)
                     {
-                        serversFailed.Add(server.Name);
+                        if (ex.HResult != -2147016646) //server is not operational
+                            serversFailed.Add(server.Name); // don't wait downed servers 
+                        log.LogDebug("WaitDestinationADReplication for server '" + server.Name + "': " + ex.Message);
                     }
                 }
                 if (serversFailed.Count == 0)
                     break; // AD replication seems to be complete
 
-                log.LogInfo("Waiting for user '" + samAccountName + "' to be created on server(s): " + string.Join("; ", serversFailed.ToArray()));
+                log.LogInfo(" Waiting for user '" + samAccountName + "' to be created on server(s): " + string.Join("; ", serversFailed.ToArray()));
                 Thread.Sleep(3000);
             }
+
+            log.LogDebug(" User '" + samAccountName + "' was found on servers: " + string.Join(";", serversToWait.Select(s => s.Name).ToArray()));
         }
 
-        private static void SetPropertiesToUser(DirectoryEntry oldUser, UserProperties oldProps)
+        private static string SetPropertiesToUser(DirectoryEntry oldUser, UserProperties oldProps)
         {
+            string changedProps = "";
             foreach (var prop in propNamesDestination)
             {
                 string[] newValue;
                 if (!propIgnoreDest.Contains(prop)
                     && oldProps.TryGetValue(prop, out newValue))
-                    CheckAndSetProperty(oldUser.Properties, prop, newValue, true);
+                    changedProps += CheckAndSetProperty(oldUser.Properties, prop, newValue, true);
             }
+            return changedProps;
         }
 
         private static string PrintAttributes(UserProperties props)
@@ -603,7 +636,7 @@ namespace AdPoolService
                             {
                                 var dn = (string)gr.Properties["distinguishedname"][0];
                                 var membersGr = gr.Properties["member"];
-                                if (groupsFilter.Contains(dn))
+                                if (groupsFilter.Contains(dn)) // only wanted groups needed
                                 {
                                     var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                                     foreach (string m in membersGr)
@@ -611,12 +644,12 @@ namespace AdPoolService
                                     groupCache.Add(dn, members);
                                 }
 #if DEBUG
-                                foreach (var p in gr.Properties)
-                                {
-                                    var prop = (ResultPropertyValueCollection)((System.Collections.DictionaryEntry)p).Value;
-                                    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
-                                    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
-                                }
+                                //foreach (var p in gr.Properties)
+                                //{
+                                //    var prop = (ResultPropertyValueCollection)((System.Collections.DictionaryEntry)p).Value;
+                                //    var propVal = (prop.Count > 0) ? Convert.ToString(prop[0]) : null;
+                                //    Console.WriteLine(((System.Collections.DictionaryEntry)p).Key + "=" + propVal);
+                                //}
 #endif
                             }
                         }

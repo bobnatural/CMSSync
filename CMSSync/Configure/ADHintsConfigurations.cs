@@ -11,6 +11,7 @@ namespace Cmssync
 {
     internal class ADHintsConfigurationSection : ConfigurationSection
     {
+        private static ISet<string> allGroupsFromConfig = null; // cache of configured groups
 
         [ConfigurationProperty("ADHints")]
         [ConfigurationCollection(typeof(ADHintsCollection), AddItemName = "ADHint")]
@@ -64,8 +65,11 @@ namespace Cmssync
             return names.ToArray();
         }
 
-        public static ISet<string> GetAllGroups()
+        public static ISet<string> GetAllGroupsFromConfig()
         {
+            if (allGroupsFromConfig != null)
+                return allGroupsFromConfig;
+
             var hintsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
             ISet<string> groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ADHintElement hint in hintsElements.ADHints)
@@ -86,7 +90,7 @@ namespace Cmssync
                                 groups.Add(v.Value);
                     }
             }
-            return groups;
+            return (allGroupsFromConfig = groups);
         }
         
         public static ADHintElement GetOUByAttributes(UserProperties userPropsNew, UserProperties userPropsOld, out string transResult)
@@ -157,7 +161,15 @@ namespace Cmssync
                         return attrVal.Value.Trim(); // at least one value is equal
                 }
             return string.Empty;
-        }        
+        }
+
+        internal static string PrintMemberOfAttributes(string[] userGroups)
+        {
+            string res = Environment.NewLine + "MemberOf:";
+            foreach(var confGr in GetAllGroupsFromConfig())
+                res += Environment.NewLine + (userGroups != null && userGroups.Contains(confGr, StringComparer.OrdinalIgnoreCase) ? " Yes:" : " No: ") + confGr;
+            return res;
+        }
     }
 
 
