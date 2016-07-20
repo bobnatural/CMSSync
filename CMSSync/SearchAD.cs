@@ -23,13 +23,14 @@ namespace AdPoolService
         private static ILog log = new NullLog();
 
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
-        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl"};
-        
+        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl" };
+
         // ignore to update Destination:
         private static readonly ISet<string> _propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
         public static ISet<string> propIgnoreDest
         {
-            get {
+            get
+            {
                 var res = new HashSet<string>(_propIgnoreDest);
                 res.UnionWith(Utils.UserAccountControlFlags);
                 return res;
@@ -431,7 +432,8 @@ namespace AdPoolService
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
 
-                    WaitDestinationADReplication(samAccountName, newProps["objectSID"][0], serversToWait);
+                    if (isNewUser)
+                        WaitDestinationADReplication(samAccountName, newProps["objectSID"][0], serversToWait);
 
                     // Dest AD is commited.
                     // Process CCM ....
@@ -490,22 +492,31 @@ namespace AdPoolService
         {
             if (serversToWait.Length == 0)
                 return;
+            List<string> serversSucces = new List<string>();
             while (true)
             {
                 List<string> serversFailed = new List<string>();
+                
                 foreach (var server in serversToWait)
                 {
+                    if (serversSucces.Contains(server.Name))
+                        continue;
                     try
                     {
                         using (DirectoryEntry searchOU = new DirectoryEntry(server.path, server.ServerUserName, server.ServerPassword, server.authTypes))
                             if (LoadUserByObjectSID(searchOU, objectSID, samAccountName) == null)
                                 serversFailed.Add(server.Name);
+                            else
+                            {
+                                serversSucces.Add(server.Name);
+                                serversFailed.Remove(server.Name);
+                            }
                     }
-                    catch(Exception ex)
+                    catch (Exception ex)
                     {
-                        if (ex.HResult != -2147016646) //server is not operational
+                        if (ex.HResult != -2147016646) // server is not operational
                             serversFailed.Add(server.Name); // don't wait downed servers 
-                        log.LogDebug("WaitDestinationADReplication for server '" + server.Name + "': " + ex.Message);
+                        log.LogDebug("Error in WaitDestinationADReplication for server '" + server.Name + "': " + ex.Message);
                     }
                 }
                 if (serversFailed.Count == 0)
@@ -515,7 +526,7 @@ namespace AdPoolService
                 Thread.Sleep(3000);
             }
 
-            log.LogDebug(" User '" + samAccountName + "' was found on servers: " + string.Join(";", serversToWait.Select(s => s.Name).ToArray()));
+            log.LogDebug(" User '" + samAccountName + "' was found on servers: " + string.Join(";", serversSucces.ToArray()));
         }
 
         private static string SetPropertiesToUser(DirectoryEntry oldUser, UserProperties oldProps)
@@ -541,8 +552,9 @@ namespace AdPoolService
                     uint uaControl = 0;
                     UInt32.TryParse(dict.Value[0], out uaControl);
                     List<string> uaControlFlags = new List<string>();
-                    foreach(var enumUa in Enum.GetValues(typeof(Utils.UserAccountControl)))
-                        if((uaControl & Convert.ToUInt32(enumUa)) != 0) 
+                    foreach (int enumUa in Enum.GetValues(typeof(Utils.UserAccountControl)))
+                        if ((uaControl & Convert.ToUInt32(enumUa)) != 0
+                            && enumUa != (int)Utils.UserAccountControl.NORMAL_ACCOUNT && enumUa != (int)Utils.UserAccountControl.PWD_NOTREQD)
                             uaControlFlags.Add(enumUa.ToString());
                     output += Environment.NewLine + dict.Key + "=" + string.Join("|", uaControlFlags) + ";";
                 }
@@ -550,7 +562,7 @@ namespace AdPoolService
                     output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length == 0 ? "NULL" : dict.Value[0]) + ";";
             }
             // AD didn't send me a null values. So force to print nulls
-            foreach(var missedProp in propNamesAll.Except(props.Keys))
+            foreach (var missedProp in propNamesAll.Except(props.Keys))
                 output += Environment.NewLine + missedProp + "=NULL;";
             return output;
         }
