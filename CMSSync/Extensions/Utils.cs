@@ -54,7 +54,7 @@ namespace Cmssync.Extensions
         internal static bool MatchValueInArray(string val, string[] userValue)
         {
             bool found = false;
-            if (val.StartsWith("*") && val.EndsWith("*"))
+            if (val.StartsWith("*") && val.EndsWith("*") && userValue != null)
             {
                 if (val.Length == 1) // "*" = any NotNull value
                 {
@@ -68,18 +68,20 @@ namespace Cmssync.Extensions
                     found = userValue.Any(v => v.IndexOf(actValue, StringComparison.OrdinalIgnoreCase) > 0);
                 }
             }
-            else if (val.StartsWith("*")) // "*abc" = EndsWith abc
+            else if (val.StartsWith("*") && userValue != null) // "*abc" = EndsWith abc
             {
                 var actValue = val.Remove(0, 1);
                 found = userValue.Any(v => v.EndsWith(actValue, StringComparison.OrdinalIgnoreCase));
             }
-            else if (val.EndsWith("*")) // "abc*" = StartsWith abc
+            else if (val.EndsWith("*") && userValue != null) // "abc*" = StartsWith abc
             {
                 var actValue = val.Remove(val.Length - 1, 1);
                 found = userValue.Any(v => v.StartsWith(actValue, StringComparison.OrdinalIgnoreCase));
             }
-            else // "abc" = Equal abc
+            else if (userValue != null) // "abc" = Equal abc
                 found = userValue.Contains(val, StringComparer.OrdinalIgnoreCase);
+            else if (userValue == null && "null".Equals(val, StringComparison.OrdinalIgnoreCase))
+                found = true;
             return found;
         }
     }

@@ -77,6 +77,14 @@ int TestCCM::Process(
 			else if (0 == strcmp(cmd, _T("TERMINATE-ALL")))
 				TerminateAll(user);
 		}
+		catch (NoSuchUserException* e)
+		{
+			//logger.ErrorFormat("Error in processing user '%s' in CCM: %s, %s", user, e->getMessage().c_str(), e->getErrorCode().c_str());
+			dbgout << _T("Error in processing CCM operation '") << cmd << "'. User=" << user;
+			printException(e);
+			logError();
+			exitCode = -12;
+		}
 		catch (LocalizedException* e)
 		{
 			//logger.ErrorFormat("Error in processing user '%s' in CCM: %s, %s", user, e->getMessage().c_str(), e->getErrorCode().c_str());
@@ -89,7 +97,7 @@ int TestCCM::Process(
 		{
 			dbgout << _T("Unknown error in processing CCM operation '") << cmd << "'. User=" << user;
 			logError();
-			exitCode = -12;
+			exitCode = -13;
 		}
 	}
 
@@ -454,19 +462,29 @@ UserId TestCCM::getUserId(TString user)
 	userIds.push_back(user);
 	TStringVector atttoReturn;
 	atttoReturn.push_back("cn");
-	UserVector* users = userMgr->getUsers(&userIds, &atttoReturn);
+	
+	UserVector* users = NULL;
+
+	for (int trial = 0; trial < 3; trial++)
+	{
+		users = userMgr->getUsers(&userIds, &atttoReturn);
+		if (users != NULL && users->size() > 0)
+			break; // found 
+		Sleep(3 * 1000);
+	}
 
 	if (users == NULL || users->size() == 0)
 	{
 		NoSuchUserException* nsue = new NoSuchUserException();
-		TString errorMsg = _T("The user ") + TString(user) + _T(" was not found.");
+		TString errorMsg = _T("The user '") + TString(user) + _T("' was not found.");
 		nsue->setMessage(errorMsg);
 		nsue->setErrorCode(_T("AIMS_NO_SUCH_USER"));
 		UserId userId = UserId(user);
 		nsue->setUserId(&userId);
 		throw nsue;
 	}
-	logger.SuccessFormat("User found: %s", user.c_str());
+
+	logger.SuccessFormat("The user '%s' was found in CCM", user.c_str());
 
 	// Copy objects to stack and free memory
 	UserId userId(*(users->at(0).getId()));

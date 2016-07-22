@@ -23,7 +23,9 @@ namespace AdPoolService
         private static ILog log = new NullLog();
 
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
-        static readonly ISet<string> propLoadHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl" };
+        static readonly ISet<string> propLoadSourceHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "userAccountControl" };
+        // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
+        static readonly ISet<string> propLoadDestHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl" };
 
         // ignore to update Destination:
         private static readonly ISet<string> _propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
@@ -37,22 +39,22 @@ namespace AdPoolService
             }
         }
 
-        public static List<string> propNamesAll; // hard + hint + transition props for SourceAD
+        public static List<string> propNamesSource; // hard + hint + transition props for SourceAD
         public static List<string> propNamesDestination; // hard + transition props for DestAD
 
         private static IDictionary<string, ISet<string>> groupCache; // cache of groups. [Group distinguishedname] -> [Users distinguishedname]
 
         static public void AddSourcePropNames(string[] addProps)
         {
-            if (propNamesAll == null)
-                propNamesAll = new List<string>(propLoadHard);
-            propNamesAll.AddRange(addProps);
-            propNamesAll = propNamesAll.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (propNamesSource == null)
+                propNamesSource = new List<string>(propLoadSourceHard);
+            propNamesSource.AddRange(addProps);
+            propNamesSource = propNamesSource.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
         static public void AddDestinationPropNames(string[] addProps)
         {
             if (propNamesDestination == null)
-                propNamesDestination = new List<string>(propLoadHard);
+                propNamesDestination = new List<string>(propLoadDestHard);
             propNamesDestination.AddRange(addProps);
             propNamesDestination = propNamesDestination.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -190,7 +192,7 @@ namespace AdPoolService
                 ds.SizeLimit = 0; // unlimited
                 ds.PageSize = 1000;
                 if (server.SourceDest.StartsWith("source", StringComparison.OrdinalIgnoreCase))
-                    foreach (var p in propNamesAll)
+                    foreach (var p in propNamesSource)
                         ds.PropertiesToLoad.Add(p);
                 else
                     foreach (var p in propNamesDestination)
@@ -220,11 +222,11 @@ namespace AdPoolService
                             // simbols '{}' are special for Format. So replace them in DN.
                             if (cnt <= 20)
                                 log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
-                            UserProperties props = new UserProperties(propNamesAll.Count, StringComparer.OrdinalIgnoreCase);
+                            UserProperties props = new UserProperties(propNamesSource.Count, StringComparer.OrdinalIgnoreCase);
 
                             //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
 
-                            foreach (var p in propNamesAll)
+                            foreach (var p in propNamesSource)
                             {
                                 var prop = user.Properties[p];
                                 if ("objectSID".Equals(p, StringComparison.OrdinalIgnoreCase))
@@ -547,14 +549,16 @@ namespace AdPoolService
             string output = string.Empty;
             foreach (var dict in props)
             {
-                if (dict.Key.Equals("userAccountControl", StringComparison.OrdinalIgnoreCase))
+                if (dict.Key.Equals("memberof", StringComparison.OrdinalIgnoreCase))
+                    continue; // exclude printing all user groups. Later we will print only groups from config.
+                else if (dict.Key.Equals("userAccountControl", StringComparison.OrdinalIgnoreCase))
                 {
                     uint uaControl = 0;
                     UInt32.TryParse(dict.Value[0], out uaControl);
                     List<string> uaControlFlags = new List<string>();
-                    foreach (int enumUa in Enum.GetValues(typeof(Utils.UserAccountControl)))
+                    foreach (Utils.UserAccountControl enumUa in Enum.GetValues(typeof(Utils.UserAccountControl)))
                         if ((uaControl & Convert.ToUInt32(enumUa)) != 0
-                            && enumUa != (int)Utils.UserAccountControl.NORMAL_ACCOUNT && enumUa != (int)Utils.UserAccountControl.PWD_NOTREQD)
+                            && enumUa != Utils.UserAccountControl.NORMAL_ACCOUNT && enumUa != Utils.UserAccountControl.PWD_NOTREQD)
                             uaControlFlags.Add(enumUa.ToString());
                     output += Environment.NewLine + dict.Key + "=" + string.Join("|", uaControlFlags) + ";";
                 }
@@ -562,8 +566,12 @@ namespace AdPoolService
                     output += Environment.NewLine + dict.Key + "=" + (dict.Value == null || dict.Value.Length == 0 ? "NULL" : dict.Value[0]) + ";";
             }
             // AD didn't send me a null values. So force to print nulls
-            foreach (var missedProp in propNamesAll.Except(props.Keys))
+            foreach (var missedProp in propNamesSource.Except(props.Keys))
+            {
+                if (missedProp.Equals("memberof", StringComparison.OrdinalIgnoreCase))
+                    continue; // exclude printing all user groups. Later we will print only groups from config.
                 output += Environment.NewLine + missedProp + "=NULL;";
+            }
             return output;
         }
 

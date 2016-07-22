@@ -105,8 +105,8 @@ namespace Cmssync
                 foreach (HintAttribute hintAttr in hint.ADHintAttributes)
                 {
                     string[] userAttrValue = userPropsNew.GetPropValue(hintAttr.Name);
-                    if (userAttrValue == null
-                        || string.IsNullOrEmpty(GetFirstMatchedAttribute(userAttrValue, hintAttr.Name, hintAttr.HintAttributeValues)))
+                    if ( //userAttrValue == null
+                        string.IsNullOrEmpty(GetFirstMatchedAttribute(userAttrValue, hintAttr.Name, hintAttr.HintAttributeValues)))
                     {
                         hintMatched = false; // if any hintvalue is not matched 
                         break; // Then Hint is not matched
@@ -139,7 +139,7 @@ namespace Cmssync
             {
                 Utils.UserAccountControl uaEnum; // flag
                 UInt32 userAccountControl = 0;
-                if (userAttrValue != null)
+                if (userAttrValue != null && userAttrValue.Length > 0)
                     UInt32.TryParse(userAttrValue[0], out userAccountControl);
                 if (Enum.TryParse(attributeName.Trim(), out uaEnum)) // 
                 {
@@ -148,16 +148,16 @@ namespace Cmssync
                     {
                         var hintVal = attrVal.Value.Trim();
                         bool bHintVal = false;
-                        Boolean.TryParse(hintVal, out bHintVal); 
+                        Boolean.TryParse(hintVal, out bHintVal);
                         if (hintVal == "*" || userValue == bHintVal)
-                            return userValue.ToString(); // +"(" + hintVal + ")";
+                            return hintVal; // userValue.ToString(); // +"(" + hintVal + ")";
                     }
                 }
             }
             else 
                 foreach (AttributeValue attrVal in configAttrValues)
                 {
-                    if (userAttrValue != null && Utils.MatchValueInArray(attrVal.Value.Trim(), userAttrValue))
+                    if (Utils.MatchValueInArray(attrVal.Value.Trim(), userAttrValue))
                         return attrVal.Value.Trim(); // at least one value is equal
                 }
             return string.Empty;
@@ -165,7 +165,7 @@ namespace Cmssync
 
         internal static string PrintMemberOfAttributes(string[] userGroups)
         {
-            string res = Environment.NewLine + "MemberOf:";
+            string res = Environment.NewLine + "MemberOf from config:";
             foreach(var confGr in GetAllGroupsFromConfig())
                 res += Environment.NewLine + (userGroups != null && userGroups.Contains(confGr, StringComparer.OrdinalIgnoreCase) ? " Yes:" : " No: ") + confGr;
             return res;
@@ -285,22 +285,28 @@ namespace Cmssync
                 var anyFrom = hintAttr.TransitionAttributeValuesFrom.AnyValue ?? false;
                 var anyTo = hintAttr.TransitionAttributeValuesTo.AnyValue ?? false;
 
-                if (anyFrom && !Utils.CheckEquals(userValueFrom, userValueTo))
-                    matchedAttrValueFrom = (userValueFrom == null || userValueFrom.Length == 0 || string.IsNullOrEmpty(userValueFrom[0])? "NULL" : userValueFrom[0]) + "(*)"; // if AnyValueAttribute set and value has changed
-                else
-                    matchedAttrValueFrom = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueFrom, hintAttr.Name, hintAttr.TransitionAttributeValuesFrom);
-                if (string.IsNullOrEmpty(matchedAttrValueFrom))
-                    return null; // values not found. No transition
+                if (!Utils.CheckEquals(userValueFrom, userValueTo))
+                {
+                    if (anyFrom)
+                        matchedAttrValueFrom = (userValueFrom == null || userValueFrom.Length == 0 || string.IsNullOrEmpty(userValueFrom[0]) ? "NULL" : userValueFrom[0]) + "(*)"; // if AnyValueAttribute set and value has changed
+                    else
+                        matchedAttrValueFrom = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueFrom, hintAttr.Name, hintAttr.TransitionAttributeValuesFrom);
 
-                if (anyTo && !Utils.CheckEquals(userValueFrom, userValueTo))
-                    matchedAttrValueTo = (userValueTo == null || userValueTo.Length == 0 || string.IsNullOrEmpty(userValueTo[0]) ? "NULL" : userValueTo[0]) + "(*)"; // if AnyValueAttribute set and value has changed
+                    if (string.IsNullOrEmpty(matchedAttrValueFrom))
+                        return null; // values not found. No transition
+
+                    if (anyTo)
+                        matchedAttrValueTo = (userValueTo == null || userValueTo.Length == 0 || string.IsNullOrEmpty(userValueTo[0]) ? "NULL" : userValueTo[0]) + "(*)"; // if AnyValueAttribute set and value has changed
+                    else
+                        matchedAttrValueTo = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueTo, hintAttr.Name, hintAttr.TransitionAttributeValuesTo);
+
+                    if (string.IsNullOrEmpty(matchedAttrValueTo))
+                        return null; // values not found. No transition
+
+                    matchMessage += "[" + hintAttr.Name + "]='" + matchedAttrValueFrom + "' -> '" + matchedAttrValueTo + "';";
+                }
                 else
-                    matchedAttrValueTo = ADHintsConfigurationSection.GetFirstMatchedAttribute(userValueTo, hintAttr.Name, hintAttr.TransitionAttributeValuesTo);
-                
-                if (string.IsNullOrEmpty(matchedAttrValueTo))
-                    return null; // values not found. No transition
-                
-                matchMessage += "[" + hintAttr.Name + "]='" + matchedAttrValueFrom + "' -> '" + matchedAttrValueTo + "';";
+                    return null; // values not changed
             }
 
             return matchMessage;
