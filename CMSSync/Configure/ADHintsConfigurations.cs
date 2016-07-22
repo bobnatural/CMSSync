@@ -28,7 +28,7 @@ namespace Cmssync
         public static string[] GetAllAttributeNames()
         {
             var hintsElements = (ADHintsConfigurationSection)ConfigurationManager.GetSection("ADHintSettings");
-            
+
             ISet<string> names = new HashSet<string>(GetTransitionAttributeNames());
 
             foreach (ADHintElement hint in hintsElements.ADHints)
@@ -92,7 +92,7 @@ namespace Cmssync
             }
             return (allGroupsFromConfig = groups);
         }
-        
+
         public static ADHintElement GetOUByAttributes(UserProperties userPropsNew, UserProperties userPropsOld, out string transResult)
         {
             // ConfigurationManager.RefreshSection("ADHints");
@@ -154,7 +154,7 @@ namespace Cmssync
                     }
                 }
             }
-            else 
+            else
                 foreach (AttributeValue attrVal in configAttrValues)
                 {
                     if (Utils.MatchValueInArray(attrVal.Value.Trim(), userAttrValue))
@@ -166,7 +166,7 @@ namespace Cmssync
         internal static string PrintMemberOfAttributes(string[] userGroups)
         {
             string res = Environment.NewLine + "MemberOf from config:";
-            foreach(var confGr in GetAllGroupsFromConfig())
+            foreach (var confGr in GetAllGroupsFromConfig())
                 res += Environment.NewLine + (userGroups != null && userGroups.Contains(confGr, StringComparer.OrdinalIgnoreCase) ? " Yes:" : " No: ") + confGr;
             return res;
         }
@@ -219,14 +219,6 @@ namespace Cmssync
             set { this["Type"] = value; }
         }
 
-        // depricated by Qualitycheck
-        //[ConfigurationProperty("RequireEmail", IsRequired = false)]
-        //public bool? RequireEmail
-        //{
-        //    get { return (bool?)this["RequireEmail"]; }
-        //    set { this["RequireEmail"] = value; }
-        //}
-
         public enum AdHintType
         {
             Create = 1,
@@ -275,13 +267,13 @@ namespace Cmssync
             string matchMessage = "";
             if (this.Type != AdHintType.Terminate_Create || userAttrFrom == null || userAttrTo == null)
                 return ""; // Transition rules defined only for Terminate_Create
-            
+
             foreach (TransitionAttribute hintAttr in TransitionAttributes)
             {
                 string matchedAttrValueFrom, matchedAttrValueTo;
                 var userValueFrom = userAttrFrom.GetPropValue(hintAttr.Name);
                 var userValueTo = userAttrTo.GetPropValue(hintAttr.Name);
-                
+
                 var anyFrom = hintAttr.TransitionAttributeValuesFrom.AnyValue ?? false;
                 var anyTo = hintAttr.TransitionAttributeValuesTo.AnyValue ?? false;
 
@@ -312,15 +304,6 @@ namespace Cmssync
             return matchMessage;
         }
 
-
-        //private string GetFirstMatchedAttribute(string[] userValue, TransitionAttributeValuesCollection transitionAttributeValuesCollection)
-        //{
-        //    foreach (AttributeValue hintAttrVal in transitionAttributeValuesCollection)
-        //        if (userValue.Contains(hintAttrVal.Value.Trim(), StringComparer.OrdinalIgnoreCase))
-        //            return hintAttrVal.Value;
-        //    return null;
-        //}
-
         public IList<string> QualityCheck(UserProperties userAttr)
         {
             IList<string> checkMessage = new List<string>();
@@ -339,7 +322,7 @@ namespace Cmssync
                         if (found) break;
                         found = Utils.MatchValueInArray(chkVal.Value, userValue);
                     }
-                if(!found)
+                if (!found)
                 {
                     checkMessage.Add("[" + checkAttr.Name + "] = " + (userValue != null ? string.Join(";", userValue) : "null"));
                 }
@@ -465,7 +448,7 @@ namespace Cmssync
             get { return base["AnyValue"] as bool?; }
             set { base["AnyValue"] = value; }
         }
-               
+
         protected override ConfigurationElement CreateNewElement()
         {
             return new AttributeValue();
@@ -481,18 +464,8 @@ namespace Cmssync
         }
     }
 
-    //public class TransitionAttributeValue : ConfigurationElement
-    //{
-    //    [ConfigurationProperty("Value", IsRequired = false, IsKey = true)]
-    //    public string Value
-    //    {
-    //        get { return this["Value"] as string; }
-    //        set { this["Value"] = value; }
-    //    }       
-    //}
-
     public class AnyValue : ConfigurationElement
-    {        
+    {
         [ConfigurationProperty("Allow", IsRequired = false)]
         public bool? Allow
         {
@@ -561,17 +534,4 @@ namespace Cmssync
             get { return (AttributeValue)BaseGet(idx); }
         }
     }
-
-    ///// <summary>
-    ///// QUALITYCHECK ATTRIBUTEs
-    ///// </summary>
-    //public class CheckAttributeValue : ConfigurationElement
-    //{
-    //    [ConfigurationProperty("Value", IsRequired = true, IsKey = true)]
-    //    public string Value
-    //    {
-    //        get { return this["Value"] as string; }
-    //        set { this["Value"] = value; }
-    //    }
-    //}
 }

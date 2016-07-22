@@ -23,8 +23,8 @@ namespace Cmssync.Extensions
         {
             if (values1 == null && values2 == null)
                 return true;
-            if (values1==null && values2!=null
-                || values2==null && values1!=null
+            if (values1 == null && values2 != null
+                || values2 == null && values1 != null
                 || values1.Length != values2.Length)
                 return false;
             foreach (var v in values2)
@@ -48,7 +48,7 @@ namespace Cmssync.Extensions
 
         public static bool Equals(string s1, string s2)
         {
-            return s1!=null && s1.Equals(s2, StringComparison.OrdinalIgnoreCase);
+            return s1 != null && s1.Equals(s2, StringComparison.OrdinalIgnoreCase);
         }
 
         internal static bool MatchValueInArray(string val, string[] userValue)

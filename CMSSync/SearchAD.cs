@@ -25,9 +25,9 @@ namespace AdPoolService
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
         static readonly ISet<string> propLoadSourceHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "userAccountControl" };
         // what properties we need from SourceAD (Pager is needed in initialization DestAD to compare with ObjectSID)
-        static readonly ISet<string> propLoadDestHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "uSNChanged", "objectSID", "Pager", "userAccountControl" };
+        static readonly ISet<string> propLoadDestHard = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "samAccountName", "displayName", "givenName", "sn", "cn", "distinguishedName", "userPrincipalName", "initials", "mail", "Pager", "userAccountControl" };
 
-        // ignore to update Destination:
+        // ignored properties to copy from Source to Destination:
         private static readonly ISet<string> _propIgnoreDest = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "objectSID", "userAccountControl", "password", "pager", "uSNChanged", "distinguishedName", "cn", "memberOf" };
         public static ISet<string> propIgnoreDest
         {
@@ -191,12 +191,10 @@ namespace AdPoolService
                 ds.Filter = filter;
                 ds.SizeLimit = 0; // unlimited
                 ds.PageSize = 1000;
-                if (server.SourceDest.StartsWith("source", StringComparison.OrdinalIgnoreCase))
-                    foreach (var p in propNamesSource)
-                        ds.PropertiesToLoad.Add(p);
-                else
-                    foreach (var p in propNamesDestination)
-                        ds.PropertiesToLoad.Add(p);
+                IList<string> propsToLoad = server.SourceDest.StartsWith("source", StringComparison.OrdinalIgnoreCase) ? propNamesSource : propNamesDestination;
+
+                foreach (var p in propsToLoad)
+                    ds.PropertiesToLoad.Add(p);
 
                 using (SearchResultCollection results = ds.FindAll())
                 {
@@ -215,18 +213,18 @@ namespace AdPoolService
                             //}
 #endif
                             //var user = r.GetDirectoryEntry();
-                            var objectSID = (new SecurityIdentifier(((byte[])user.Properties["objectSID"][0]), 0)).ToString();
+                            var objectSID = user.Properties.Contains("objectSID") ? (new SecurityIdentifier(((byte[])user.Properties["objectSID"][0]), 0)).ToString() : string.Empty;
                             var dnProp = user.Properties["distinguishedName"];
                             var dn = (dnProp.Count > 0) ? Convert.ToString(dnProp[0]) : null;
 
                             // simbols '{}' are special for Format. So replace them in DN.
                             if (cnt <= 20)
                                 log.LogInfo(" Read samAccountName='" + user.Properties["samAccountName"][0] + "', objectSID='" + objectSID + "', DN='" + dn.Replace('{', '(').Replace('}', ')') + "'");
-                            UserProperties props = new UserProperties(propNamesSource.Count, StringComparer.OrdinalIgnoreCase);
+                            UserProperties props = new UserProperties(propsToLoad.Count, StringComparer.OrdinalIgnoreCase);
 
                             //var groups = GetGroups(domainCtx, (string)user.Properties["samAccountName"][0]);
 
-                            foreach (var p in propNamesSource)
+                            foreach (var p in propsToLoad)
                             {
                                 var prop = user.Properties[p];
                                 if ("objectSID".Equals(p, StringComparison.OrdinalIgnoreCase))
@@ -236,6 +234,8 @@ namespace AdPoolService
                                     var stringColl = ConvertToStrings(prop);
                                     props.Add(p, stringColl);
                                 }
+                                else
+                                    props.Add(p, null); // property is set to null in AD
                             }
 
                             usersProperties.Add(props);
@@ -287,6 +287,8 @@ namespace AdPoolService
 
         private static bool CheckEquals(PropertyValueCollection properties, string[] values)
         {
+            if (values == null)
+                return properties.Count == 0;
             if (properties.Count != values.Length)
                 return false;
             foreach (var v in values)
@@ -366,7 +368,7 @@ namespace AdPoolService
                 var adHint = ADHintsConfigurationSection.GetOUByAttributes(newProps, oldProps, out transResult);
                 if (adHint == null)
                 {
-                    var messageHint = "ADHint is not found for user '" + samAccountName + "'. Attributes:" + PrintAttributes(newProps);
+                    var messageHint = "ADHint is not found for user " + quote(samAccountName) + ". Attributes:" + PrintAttributes(newProps);
                     messageHint += ADHintsConfigurationSection.PrintMemberOfAttributes(newProps.GetPropValue("memberOf"));
 
                     if (Settings.Default.DataMismatchLogging)
@@ -440,12 +442,6 @@ namespace AdPoolService
                     // Dest AD is commited.
                     // Process CCM ....
 
-                    //bool isChangedImportantProps = changedImportantProps.Length > 0 || isNewUser;
-                    //if (!isChangedImportantProps)
-                    //{
-                    //    log.LogInfo("Skip updating CCM");
-                    //    return 0;
-                    //}
                     if (Settings.Default.CCMHost.Trim().Length == 0)
                     {
                         log.LogWarn("CCMHost is not set. Skip CCM processing");
@@ -498,7 +494,7 @@ namespace AdPoolService
             while (true)
             {
                 List<string> serversFailed = new List<string>();
-                
+
                 foreach (var server in serversToWait)
                 {
                     if (serversSucces.Contains(server.Name))
@@ -531,15 +527,17 @@ namespace AdPoolService
             log.LogDebug(" User '" + samAccountName + "' was found on servers: " + string.Join(";", serversSucces.ToArray()));
         }
 
-        private static string SetPropertiesToUser(DirectoryEntry oldUser, UserProperties oldProps)
+        private static string SetPropertiesToUser(DirectoryEntry destUser, UserProperties newProps)
         {
             string changedProps = "";
             foreach (var prop in propNamesDestination)
             {
                 string[] newValue;
-                if (!propIgnoreDest.Contains(prop)
-                    && oldProps.TryGetValue(prop, out newValue))
-                    changedProps += CheckAndSetProperty(oldUser.Properties, prop, newValue, true);
+                if (!propIgnoreDest.Contains(prop))
+                    if (newProps.TryGetValue(prop, out newValue))
+                        changedProps += CheckAndSetProperty(destUser.Properties, prop, newValue, true);
+                //else
+                //    changedProps += CheckAndSetProperty(destUser.Properties, prop, null, true);
             }
             return changedProps;
         }
@@ -591,8 +589,8 @@ namespace AdPoolService
 
         private static string CheckAndSetProperty(PropertyCollection property, string propName, string[] newValue, bool supressLog = false)
         {
-            if (newValue == null || newValue.Length == 0) // (newValue is string && string.IsNullOrEmpty((string)newValue))) // to avoid Constraint Violation for new user. Don't set null to property.
-                return "";
+            //if (newValue == null || newValue.Length == 0) // (newValue is string && string.IsNullOrEmpty((string)newValue))) // to avoid Constraint Violation for new user. Don't set null to property.
+            //    return "";
             try
             {
                 var prop = property[propName];
@@ -601,17 +599,25 @@ namespace AdPoolService
                 //    || (!(newValue is string) && !Equals(newValue, prop.Value)))
                 if (!CheckEquals(prop, newValue))
                 {
-                    string res = "[" + propName + "]='" + prop.Value + "' -> '" + (newValue != null && newValue.Length > 0 ? newValue[0] : "(null)") + "'; ";
+                    string res = "[" + propName + "]=" + (prop.Value == null ? "null" : quote(prop.Value)) + " -> " + (newValue != null && newValue.Length > 0 ? quote(newValue[0]) : "null") + "; ";
                     log.LogDebug("   " + res);
-                    prop.Value = newValue;
+                    if (newValue == null || newValue.Length == 0)
+                        prop.Clear();
+                    else
+                        prop.Value = newValue;
                     return res;
                 }
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Set attribute name [" + propName + "] with new value = '" + newValue + "'");
+                log.LogError(ex, "Set attribute name [" + propName + "] with new value = " + quote(newValue));
             }
             return "";
+        }
+
+        private static string quote<T>(T txt)
+        {
+            return "'" + Convert.ToString(txt) + "'";
         }
 
         public string GetInvocationID

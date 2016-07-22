@@ -176,15 +176,17 @@ namespace AdPoolService
 
             UserProperties userPropsFrom = new UserProperties() { 
             { "L", new string[]{"Boston","Tokio"} }, 
-            { "facsimileTelephoneNumber", new string[]{"123"} }, 
+            { "facsimileTelephoneNumber", null },  // new string[]{"123"}
             { "mobile", new string[]{"7"} }, 
+            { "memberOf", new string[]{"CN=Exchange Services,CN=Users,DC=egar,DC=egartech,DC=com", "CN=IIS_IUSRS,CN=Builtin,DC=kireev,DC=local"} }, 
             { "mail", new string[]{"123DfG123"} }, 
             { "userPrincipalName", new string[]{"123"} }, };
             UserProperties userPropsTo = new UserProperties() { 
             { "L", new string[] { "Boston" } }, 
             { "facsimileTelephoneNumber", new string[] { "456" } }, 
             { "userAccountControl", new string[] { Convert.ToString((uint)Utils.UserAccountControl.SMARTCARD_REQUIRED) } }, 
-            { "mobile", new string[] { "4" } } 
+            { "mobile", new string[] { "4" } },
+            { "memberOf", new string[]{"CN=Exchange Services,CN=Users,DC=egar,DC=egartech,DC=com","CN=IIS_IUSRS,CN=Builtin,DC=kireev,DC=local"} }, 
             };
 
             string transResult;
@@ -193,7 +195,7 @@ namespace AdPoolService
             {
                 var qualityCheck = adHint.QualityCheck(userPropsFrom);
                 //var transResult = adHint.GetTransitionByUserAttributes(userPropsFrom, userPropsTo);
-            }            
+            }
         }
 
         private static void InitializeAllAccounts()
@@ -300,7 +302,7 @@ namespace AdPoolService
                 }
                 catch (Exception ex)
                 {
-                     log.LogDebug("Failed to connect to " + server.ToString() + ": " + ex.Message);
+                    log.LogDebug("Failed to connect to " + server.ToString() + ": " + ex.Message);
                 }
             }
             throw new Exception("No Source AD Servers available");
@@ -409,9 +411,9 @@ namespace AdPoolService
                 log.LogInfo("Updated " + updatedCnt + " user(s) of " + usersProps.Count);
             else
                 log.LogError("Updated " + updatedCnt + " user(s) of " + usersProps.Count + ". See previouse log records for errors.");
-                
+
             return updatedCnt; // == usersProps.Count;
-            
+
             throw new Exception("Unable to connect to any Destination servers");
         }
 
