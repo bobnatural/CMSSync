@@ -70,3 +70,8 @@ Jul 07 2016
         </QualityCheck>
         
       </ADHint>
+---------
+if the person does not have a card yet (only a request or nothing at all) then testccm on option 16 returns nothing / no text
+if the prson does have a card it prints the serial number of the card, device status, and reason
+if the card is suspended, it is in a state of INVALID reason is on ON_HOLD
+if a card is terminated, then testccm displays the same results as when the person doesn't have a card at all

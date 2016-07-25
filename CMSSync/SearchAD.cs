@@ -395,10 +395,11 @@ namespace AdPoolService
                 {
                     string changedImportantProps = transResult;
                     string changedAllProps = "";
-
+                    string msg = " '" + samAccountName + "' . HintNum=" + adHint.Num + ". " + adHint.Type + ". ";
                     if (isNewUser) // new user
                     {
-                        log.LogInfo(" '" + samAccountName + "' add into OU '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                        //log.LogInfo(" '" + samAccountName + "' . HintNum=" + adHint.Num + ". New user in '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)") + " ...");
+                        msg += "Add user into '" + destOU.Path + "'" + (server.SSL ? "(SSL)" : "(not SSL)");
                         oldUser = destOU.Children.Add("CN=" + samAccountName, "user");
                     }
                     else
@@ -406,33 +407,40 @@ namespace AdPoolService
                         // check if OU is changed for user 
                         if (!oldUser.Parent.Path.Equals(destOU.Path, StringComparison.OrdinalIgnoreCase))
                         {
-                            log.LogInfo(" '" + samAccountName + "' move from '" + oldUser.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                            //log.LogInfo(" '" + samAccountName + "' move from '" + oldUser.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                            msg += "Move from '" + oldUser.Parent.Path + "' -> '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)");
                             oldUser.MoveTo(destOU);
                             changedAllProps += "OU;";
                         }
                         else
-                            log.LogInfo(" '" + samAccountName + "' update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                            //log.LogInfo(" '" + samAccountName + "' update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)") + ". HintNum=" + adHint.Num + " ...");
+                            msg += "Update in OU '" + destOU.Path + "' " + (server.SSL ? "(SSL)" : "(not SSL)");
                     }
+
+                    changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[] { samAccountName }); // AD key
 
                     changedAllProps += SetPropertiesToUser(oldUser, newProps);
                     changedAllProps += CheckAndSetProperty(oldUser.Properties, "Pager", newProps["objectSID"]); // the surrogate key 
 
-                    changedImportantProps += CheckAndSetProperty(oldUser.Properties, "samAccountName", new string[] { samAccountName }); // AD key
-                    if (!isNewUser && changedImportantProps.Length > 0)
+                    bool terminate = !isNewUser && changedImportantProps.Length > 0;
+                    if (terminate)
                     {
-                        log.LogInfo("Changed account attributes: " + changedImportantProps + " Terminating '" + oldSamAccountName + "' in CCM ...");
+                        log.LogInfo(msg + ". Terminating. Changed attributes: " + Environment.NewLine + changedAllProps + Environment.NewLine + changedImportantProps);
                         CCMApi.Terminate(oldSamAccountName);
                     }
-                    else if (!isNewUser)
-                        log.LogDebug("Changed account attributes: " + changedAllProps);
-
-                    oldUser.Properties["userAccountControl"].Value = Utils.UserAccountControl.NORMAL_ACCOUNT | Utils.UserAccountControl.ACCOUNTDISABLE | Utils.UserAccountControl.PWD_NOTREQD;
-
-                    if (!isNewUser && string.IsNullOrEmpty(changedAllProps) && string.IsNullOrEmpty(changedImportantProps))
+                    else if (!isNewUser && string.IsNullOrEmpty(changedAllProps) && string.IsNullOrEmpty(changedImportantProps))
                     {
                         log.LogDebug("No attributes changed. Skip updating.");
                         return 0; // skip to commit
                     }
+                    else
+                        log.LogInfo(msg + "Changed attributes: " + Environment.NewLine + changedAllProps + Environment.NewLine + changedImportantProps);
+
+                    if(!terminate && CCMApi.IsActive(oldSamAccountName) != 0)
+                        return -1; // card is already active
+
+                    oldUser.Properties["userAccountControl"].Value = Utils.UserAccountControl.NORMAL_ACCOUNT | Utils.UserAccountControl.ACCOUNTDISABLE | Utils.UserAccountControl.PWD_NOTREQD;
+
                     //Console.WriteLine("  CommitChanges '" + samAccountName + "' ...");
                     oldUser.CommitChanges();
 
@@ -600,7 +608,7 @@ namespace AdPoolService
                 if (!CheckEquals(prop, newValue))
                 {
                     string res = "[" + propName + "]=" + (prop.Value == null ? "null" : quote(prop.Value)) + " -> " + (newValue != null && newValue.Length > 0 ? quote(newValue[0]) : "null") + "; ";
-                    log.LogDebug("   " + res);
+                    //log.LogDebug("   " + res);
                     if (newValue == null || newValue.Length == 0)
                         prop.Clear();
                     else

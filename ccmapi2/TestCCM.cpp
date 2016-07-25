@@ -73,9 +73,11 @@ int TestCCM::Process(
 	{
 		try{
 			if (0 == strcmp(cmd, _T("CREATE-CPR")))
-				createCPR(TString(user), TString(cprContent), TString(policy), TString(reason));
+				exitCode = createCPR(TString(user), TString(cprContent), TString(policy), TString(reason));
 			else if (0 == strcmp(cmd, _T("TERMINATE-ALL")))
 				TerminateAll(user);
+			else if (0 == strcmp(cmd, _T("IsDeviceIsActive")))
+				exitCode = IsDeviceIsActive(TString(user));
 		}
 		catch (NoSuchUserException* e)
 		{
@@ -518,7 +520,7 @@ int TestCCM::createCPR(const TString& user, const TString& cprData, const TStrin
 		auto devStatus = GetLifecycleStatus(walletId);
 		if (devStatus.length() > 0)
 		{
-			logger.WarnFormat("Skip submitActions in CCM. Device: %s", devStatus.c_str());
+			logger.WarnFormat(1130, "Skip submitActions in CCM. Device: %s", devStatus.c_str());
 			return 1;
 		}
 
@@ -632,6 +634,20 @@ int TestCCM::TerminateAll(const TString &user)
 	// cleanup
 	delete smIds;
 	return 0;
+}
+
+int TestCCM::IsDeviceIsActive(const TString &user)
+{
+	UserId userId = getUserId(user);
+	WalletId*	walletId = walletMgr->getBoundWalletFromUser(&userId);
+
+	auto devStatus = GetLifecycleStatus(walletId);
+	if (devStatus.length() > 0)
+	{
+		logger.WarnFormat(1130, "Skip submitActions in CCM. Device: %s", devStatus.c_str());
+		return 1; // device is active
+	}
+	return 0; // not active
 }
 
 TString TestCCM::GetLifecycleStatus(WalletId* walletId)

@@ -37,3 +37,10 @@ extern "C" ICCMAPI_API int CheckHealth(
 	char*	certSerial,
 	char*	certIssuer
 );
+
+extern "C" ICCMAPI_API int IsDeviceIsActive(
+	char*	host, //= args[1]; // 192.168.214.134
+	char*	port, //= args[2]; // 32456 
+	char*	certSerial,
+	char*	certIssuer,
+	char*	user);

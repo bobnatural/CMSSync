@@ -198,8 +198,8 @@ namespace AdPoolService.HealthCheck {
 
                 foreach (var cert in store.Certificates)
                 {
-                    var sertIssuer = "CN = " + cert.GetNameInfo(X509NameType.SimpleName, true);
-                    if (serial.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) && issuer.Equals(sertIssuer, StringComparison.OrdinalIgnoreCase))
+                    var certIssuer = "CN = " + cert.GetNameInfo(X509NameType.SimpleName, true);
+                    if (serial.Equals(cert.SerialNumber, StringComparison.OrdinalIgnoreCase) && issuer.Equals(certIssuer, StringComparison.OrdinalIgnoreCase))
                     {
                         log.LogDebug("found certificate: '" + cert.Issuer + "' in " + storeLocation + " " + storeName);
                         return true;

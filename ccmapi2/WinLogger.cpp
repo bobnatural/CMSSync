@@ -23,9 +23,11 @@ WinLogger::~WinLogger()
 
 void WinLogger::LogFormat(int type, const char* format, va_list args) throw()
 {
+	LogFormat(type, 1100, format, args);
+}
+
+void WinLogger::LogFormat(int type, DWORD eventID, const char* format, va_list args) throw(){
 	//	if (hLogFile == NULL) return;
-
-
 	__try{
 		__try{
 			//			EnterCriticalSection(&cs);
@@ -33,9 +35,8 @@ void WinLogger::LogFormat(int type, const char* format, va_list args) throw()
 			if (szBuffer)
 			{
 				//Format and print message
-				_vsnprintf_s(szBuffer, (1024 * 64) / sizeof(char) - sizeof(char), _TRUNCATE, format, args);
-				
-				Log(type, 1100, szBuffer);
+				_vsnprintf_s(szBuffer, (1024 * 64) / sizeof(char) - sizeof(char), _TRUNCATE, format, args);				
+				Log(type, eventID, szBuffer);
 			}
 		}
 		__finally{
@@ -112,4 +113,12 @@ void WinLogger::Info(const char* msg) throw()
 void WinLogger::Success(const char* msg) throw()
 {
 	Log(EVENTLOG_SUCCESS, 1501, msg);
+}
+
+void WinLogger::WarnFormat(DWORD eventID, const char* format, ...) throw()
+{
+	va_list args;
+	va_start(args, format);
+	LogFormat(EVENTLOG_WARNING_TYPE, format, args);
+	va_end(args);
 }

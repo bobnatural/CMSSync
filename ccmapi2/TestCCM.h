@@ -44,6 +44,7 @@ private:
 	// commands:
 	int createCPR(const TString& user, const TString& cprFile, const TString& policy, const TString& reason);
 	int TerminateAll(const TString &user);
+	int IsDeviceIsActive(const TString &user);
 	void cancelActions(WalletId* pWalletId);
 	TString GetLifecycleStatus(WalletId* pWalletId);
 

@@ -8,6 +8,7 @@ class WinLogger
 public:
 	WinLogger(const char* sourceName);
 	~WinLogger();
+	void LogFormat(int type, DWORD eventID, const char* format, va_list args) throw();
 	void LogFormat(int type, const char* format, va_list args) throw();
 	void Log(int type, DWORD eventID, const char* szMsg) throw();
 
@@ -20,6 +21,8 @@ public:
 	virtual void WarnFormat(const char* format, ...) throw();
 	virtual void InfoFormat(const char* format, ...) throw();
 	virtual void SuccessFormat(const char* format, ...) throw();
+
+	void WarnFormat(DWORD eventID, const char* format, ...) throw();
 
 };
 

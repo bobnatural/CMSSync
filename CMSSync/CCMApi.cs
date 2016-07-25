@@ -14,38 +14,59 @@ namespace Cmssync
         public static double interCcmSpacing { set; private get; }
         private static DateTime lastCcmCall = DateTime.MinValue;
 
-        [DllImport("ccmapi2.dll", EntryPoint = "createCPR", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int createCPR(
-            //String	cmd, //= args[0]; // CREATE-CPR
-            String host, //= args[1]; // 192.168.214.134
-            String port, //= args[2]; // 32456 
-            String sertSerial,
-            String sertIssuer,
-            //String	client, //= args[3]; // client.pfx
-            //String	pwd, //= args[4]; // actividentity
-            //String	CA, //= args[5]; // root.cer
-            String user, //= args[6]; // "John G. Doe"
-            String reader, //= args[7]; // "CPR 2.1.8.sample.signed.xml"
-            String pin, //= args[8]; // ""
-            String policy, //= args[9]; // "F2F" or "test6"
-            String reason //= args[10]; // ""		    
-        );
+        private class api
+        {
+            [DllImport("ccmapi2.dll", EntryPoint = "createCPR", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int createCPR(
+                //String	cmd, //= args[0]; // CREATE-CPR
+                String host, //= args[1]; // 192.168.214.134
+                String port, //= args[2]; // 32456 
+                String certSerial,
+                String certIssuer,
+                //String	client, //= args[3]; // client.pfx
+                //String	pwd, //= args[4]; // actividentity
+                //String	CA, //= args[5]; // root.cer
+                String user, //= args[6]; // "John G. Doe"
+                String reader, //= args[7]; // "CPR 2.1.8.sample.signed.xml"
+                String pin, //= args[8]; // ""
+                String policy, //= args[9]; // "F2F" or "test6"
+                String reason //= args[10]; // ""		    
+            );
 
-        [DllImport("ccmapi2.dll", EntryPoint = "TerminateAll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int TerminateAll(
-            String host,        // 192.168.214.134
-            String port,        // 32456 
-            String sertSerial,
-            String sertIssuer,
-            String user
-        );
-        [DllImport("ccmapi2.dll", EntryPoint = "CheckHealth", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int CheckHealth(
-            String host,        // 192.168.214.134
-            String port,        // 32456 
-            String sertSerial,
-            String sertIssuer
-        );
+            [DllImport("ccmapi2.dll", EntryPoint = "TerminateAll", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int TerminateAll(
+                String host,        // 192.168.214.134
+                String port,        // 32456 
+                String certSerial,
+                String certIssuer,
+                String user
+            );
+            [DllImport("ccmapi2.dll", EntryPoint = "IsDeviceIsActive", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int IsDeviceIsActive(
+                String host,        // 192.168.214.134
+                String port,        // 32456 
+                String certSerial,
+                String certIssuer,
+                String user
+            );
+
+            [DllImport("ccmapi2.dll", EntryPoint = "CheckHealth", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int CheckHealth(
+                String host,        // 192.168.214.134
+                String port,        // 32456 
+                String certSerial,
+                String certIssuer
+            );
+        }
+        public static int CheckHealth(
+                        String host,        // 192.168.214.134
+                        String port,        // 32456 
+                        String certSerial,
+                        String certIssuer
+                    )
+        {
+            return api.CheckHealth(host, port, certSerial, certIssuer);
+        }
 
         public static int Terminate(string samAccount)
         {
@@ -59,7 +80,7 @@ namespace Cmssync
             int res = 0;
             if (Settings.Default.CCMHost.Trim().Length != 0)
             {
-                res = CCMApi.TerminateAll(Settings.Default.CCMHost, Settings.Default.CCMPort,
+                res = api.TerminateAll(Settings.Default.CCMHost, Settings.Default.CCMPort,
                         Settings.Default.CCMCertificateSerial.Trim().ToLower(), // CMS required lowcase letters !
                         Settings.Default.CCMCertificateIssuer.Trim(),
                         samAccount);
@@ -73,6 +94,20 @@ namespace Cmssync
                 log.LogWarn("CCMHost is not set. Skip CCM processing");
             return res;
         }
+
+        public static int IsActive(string samAccount)
+        {
+            if (Settings.Default.CCMHost.Trim().Length != 0)
+            {
+                return api.IsDeviceIsActive(Settings.Default.CCMHost, Settings.Default.CCMPort,
+                        Settings.Default.CCMCertificateSerial.Trim().ToLower(), // CMS required lowcase letters !
+                        Settings.Default.CCMCertificateIssuer.Trim(),
+                        samAccount);
+            }
+            else
+                return 0; // not active
+        }
+
         public static int CreateCPR(
             String user, //= args[6]; // "John G. Doe"
             String cprContent, //= args[7]; // "CPR 2.1.8.sample.signed.xml"
@@ -88,7 +123,7 @@ namespace Cmssync
                 if (waitInterval > 0 && waitInterval < 100)
                     System.Threading.Thread.Sleep((int)(waitInterval * 1000));
 
-                var res = CCMApi.createCPR(Settings.Default.CCMHost, Settings.Default.CCMPort,
+                var res = api.createCPR(Settings.Default.CCMHost, Settings.Default.CCMPort,
                     Settings.Default.CCMCertificateSerial.Trim().ToLower(), // CMS required lowcase letters !
                     Settings.Default.CCMCertificateIssuer.Trim(),
                     user,
