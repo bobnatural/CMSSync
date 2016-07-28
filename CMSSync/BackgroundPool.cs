@@ -101,7 +101,6 @@ namespace AdPoolService
 #if DEBUG
             uniTest();
 #endif
-
             InitializeAllAccounts();
 
             while (true)

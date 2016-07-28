@@ -436,7 +436,7 @@ namespace AdPoolService
                     else
                         log.LogInfo(msg + "Changed attributes: " + Environment.NewLine + changedAllProps + Environment.NewLine + changedImportantProps);
 
-                    if(!terminate && CCMApi.IsActive(oldSamAccountName) != 0)
+                    if(!terminate && CCMApi.IsActive(samAccountName) != 0)
                         return -1; // card is already active
 
                     oldUser.Properties["userAccountControl"].Value = Utils.UserAccountControl.NORMAL_ACCOUNT | Utils.UserAccountControl.ACCOUNTDISABLE | Utils.UserAccountControl.PWD_NOTREQD;

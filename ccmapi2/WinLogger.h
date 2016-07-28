@@ -23,6 +23,6 @@ public:
 	virtual void SuccessFormat(const char* format, ...) throw();
 
 	void WarnFormat(DWORD eventID, const char* format, ...) throw();
-
+	void ErrorFormat(DWORD eventID, const char* format, ...) throw();
 };
 

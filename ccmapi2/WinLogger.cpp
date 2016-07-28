@@ -122,3 +122,10 @@ void WinLogger::WarnFormat(DWORD eventID, const char* format, ...) throw()
 	LogFormat(EVENTLOG_WARNING_TYPE, format, args);
 	va_end(args);
 }
+void WinLogger::ErrorFormat(DWORD eventID, const char* format, ...) throw()
+{
+	va_list args;
+	va_start(args, format);
+	LogFormat(EVENTLOG_ERROR_TYPE, format, args);
+	va_end(args);
+}

@@ -41,7 +41,7 @@ int TestCCM::Process(
 	{
 		dbgout << _T("Host or Port is not set.");
 		logError();
-		return -1;
+		return -2;
 	}
 
 	try{
@@ -66,7 +66,7 @@ int TestCCM::Process(
 	{
 		dbgout << _T("Unknown error in Connect to CCM.");
 		logError();
-		exitCode = -2;
+		exitCode = -3;
 	}
 
 	if (exitCode == 0)
@@ -644,7 +644,7 @@ int TestCCM::IsDeviceIsActive(const TString &user)
 	auto devStatus = GetLifecycleStatus(walletId);
 	if (devStatus.length() > 0)
 	{
-		logger.WarnFormat(1130, "Skip submitActions in CCM. Device: %s", devStatus.c_str());
+		logger.ErrorFormat(1130, "Skip submitActions in CCM. Device: %s", devStatus.c_str());
 		return 1; // device is active
 	}
 	return 0; // not active
@@ -671,7 +671,7 @@ TString TestCCM::GetLifecycleStatus(WalletId* walletId)
 			delete smnbe;
 		}
 	}
-	
-	delete smIds; // cleanup
+	if (smIds != NULL)
+		delete smIds; // cleanup
 	return "";
 }
